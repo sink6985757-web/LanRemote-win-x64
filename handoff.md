@@ -7,7 +7,7 @@
 ## 目前狀態
 
 - 可執行：是，`artifacts/LanRemote-win-x64.zip` 是包含 runtime 的本機測試包。
-- 測試包：ZIP SHA-256 `F05C6AA9CB1E55014AED22A57FD3DB1DEEDA4D1A06789013205E37FE28DFC7F1`；EXE SHA-256 `348C5D4FD8EC40919ECB40F6FB632556B738FBEE5F00114FE20DB035C44CDD13`。
+- 測試包：由 implementation commit `4fd543b1391ba5ae5d8c876387bb14ab0abbb7d9` 建置；ZIP SHA-256 `86392CCE768C800E3BE1B87DDCB6961FE2402ECBE78242EA2A56794307223AEA`；EXE SHA-256 `BBC3E3FF1CD715BC89744278872E9B0B25B6A27DB477F662D87E9B660D2C98CC`。
 - 已驗證：Debug／Release build、16/16 tests、真實 TLS loopback、配對拒絕 gate、畫面／輸入協定、WPF 被控端啟停 UI 冒煙測試。
 - 尚未驗證：Windows 10 22H2 實際啟動、兩個控制方向各五分鐘、1080p30 與互動延遲 p95 < 200 ms。
 - 技術差距：目前是 GDI/JPEG 相容垂直切片；WGC + Media Foundation H.264 尚未實作。
@@ -32,8 +32,8 @@
 
 ## 最近更新
 
-- 時間：2026-08-22 22:35 +08:00
+- 時間：2026-08-22 22:40 +08:00
 - 更新者：Codex
 - 電腦：YULIN-SFG16-72
-- 成果 commit：`PENDING_LOCAL_COMMIT`
+- 成果 commit：`4fd543b1391ba5ae5d8c876387bb14ab0abbb7d9`
 - GitHub：`NOT_CONFIGURED`

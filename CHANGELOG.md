@@ -22,8 +22,8 @@
 - `dotnet test`：16/16 通過，包含真實 TLS loopback、配對碼一致、拒絕前不擷取、核准後畫面與輸入傳送。
 - WPF UI 冒煙測試：初始畫面、區網位址、被控端啟動／停止與角色交換狀態通過。
 - `dotnet format --verify-no-changes --no-restore`：通過。
-- self-contained win-x64 測試資料夾與 ZIP 已依最終原始碼重建；ZIP 79,775,696 bytes，SHA-256 `F05C6AA9CB1E55014AED22A57FD3DB1DEEDA4D1A06789013205E37FE28DFC7F1`。
-- `LanRemote.App.exe` SHA-256：`348C5D4FD8EC40919ECB40F6FB632556B738FBEE5F00114FE20DB035C44CDD13`。
+- self-contained win-x64 測試資料夾與 ZIP 已依 implementation commit `4fd543b1391ba5ae5d8c876387bb14ab0abbb7d9` 重建；ZIP 79,776,123 bytes，SHA-256 `86392CCE768C800E3BE1B87DDCB6961FE2402ECBE78242EA2A56794307223AEA`。
+- `LanRemote.App.exe` SHA-256：`BBC3E3FF1CD715BC89744278872E9B0B25B6A27DB477F662D87E9B660D2C98CC`。
 - NuGet vulnerability audit：五個專案目前來源未回報已知弱點套件。
 
 ### Delivery
