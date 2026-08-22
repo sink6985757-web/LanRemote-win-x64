@@ -15,6 +15,7 @@ public sealed class RemoteController : IAsyncDisposable
     private FramedMessageStream? _messages;
     private Task? _reader;
     private bool _ready;
+    private QualityProfile _currentQualityProfile = QualityProfiles.Balanced;
 
     public event Action<string>? StatusChanged;
 
@@ -26,9 +27,19 @@ public sealed class RemoteController : IAsyncDisposable
 
     public event Action<MetricsPayload>? MetricsReceived;
 
+    public event Action<QualityProfile>? QualityProfileAppliedReceived;
+
     public bool IsConnected => _ready && _client?.Connected == true;
 
-    public async Task ConnectAsync(IPEndPoint endpoint, CancellationToken cancellationToken = default)
+    public QualityProfile CurrentQualityProfile => _currentQualityProfile;
+
+    public Task ConnectAsync(IPEndPoint endpoint, CancellationToken cancellationToken = default) =>
+        ConnectAsync(endpoint, QualityPreset.Balanced, cancellationToken);
+
+    public async Task ConnectAsync(
+        IPEndPoint endpoint,
+        QualityPreset initialQualityPreset,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
         if (_client is not null)
@@ -40,6 +51,8 @@ public sealed class RemoteController : IAsyncDisposable
         {
             throw new InvalidOperationException("Only private LAN or loopback addresses are allowed.");
         }
+
+        _currentQualityProfile = QualityProfiles.Get(initialQualityPreset);
 
         using CancellationTokenSource linked =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
@@ -86,7 +99,8 @@ public sealed class RemoteController : IAsyncDisposable
                 ProtocolConstants.Version,
                 Environment.MachineName,
                 Environment.OSVersion.VersionString,
-                Convert.ToBase64String(clientNonce));
+                Convert.ToBase64String(clientNonce),
+                initialQualityPreset);
             await _messages.WriteAsync(
                 MessageType.ClientHello,
                 PayloadJson.Serialize(hello),
@@ -101,7 +115,8 @@ public sealed class RemoteController : IAsyncDisposable
             ServerHello serverHello = PayloadJson.Deserialize<ServerHello>(serverPacket.Payload);
             if (serverHello.ProtocolVersion != ProtocolConstants.Version)
             {
-                throw new ProtocolException("Remote host protocol version is not supported.");
+                throw new ProtocolException(
+                    $"協定版本不相容：控制端需要 v{ProtocolConstants.Version}，被控端送出 v{serverHello.ProtocolVersion}。");
             }
 
             byte[] serverNonce = DecodeNonce(serverHello.NonceBase64);
@@ -128,18 +143,33 @@ public sealed class RemoteController : IAsyncDisposable
             }
 
             SessionReady ready = PayloadJson.Deserialize<SessionReady>(readyPacket.Payload);
+            if (!QualityProfiles.IsCanonical(ready.QualityProfile))
+            {
+                throw new ProtocolException("Remote host returned a non-canonical quality profile.");
+            }
+
+            _currentQualityProfile = ready.QualityProfile;
             _ready = true;
             SessionReadyReceived?.Invoke(ready);
-            OnStatus($"控制 session 已啟用：{ready.Width}×{ready.Height} {ready.Codec}");
+            QualityProfileAppliedReceived?.Invoke(ready.QualityProfile);
+            OnStatus($"控制 session 已啟用：{ready.Width}×{ready.Height} {ready.Codec} / " +
+                     ready.QualityProfile.DisplayName);
             _reader = ReadServerMessagesAsync(_lifetime.Token);
         }
-        catch
+        catch (Exception exception)
         {
             serverCertificate?.Dispose();
             await sslStream.DisposeAsync().ConfigureAwait(false);
             _client.Dispose();
             _client = null;
             _messages = null;
+            if (exception is IOException)
+            {
+                throw new ProtocolException(
+                    $"連線在協定交握時中斷；請確認兩臺都使用 LanRemote v{ProtocolConstants.Version}。",
+                    exception);
+            }
+
             throw;
         }
         finally
@@ -163,6 +193,23 @@ public sealed class RemoteController : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask ChangeQualityProfileAsync(
+        QualityPreset preset,
+        CancellationToken cancellationToken = default)
+    {
+        QualityProfile requested = QualityProfiles.Get(preset);
+        _currentQualityProfile = requested;
+        if (!_ready || _messages is null)
+        {
+            return;
+        }
+
+        await _messages.WriteAsync(
+            MessageType.QualityProfileRequest,
+            PayloadJson.Serialize(new QualityProfileRequest(preset)),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task ReadServerMessagesAsync(CancellationToken cancellationToken)
     {
         try
@@ -177,6 +224,17 @@ public sealed class RemoteController : IAsyncDisposable
                         break;
                     case MessageType.Metrics:
                         MetricsReceived?.Invoke(PayloadJson.Deserialize<MetricsPayload>(packet.Payload));
+                        break;
+                    case MessageType.QualityProfileApplied:
+                        QualityProfile applied = PayloadJson.Deserialize<QualityProfile>(packet.Payload);
+                        if (!QualityProfiles.IsCanonical(applied))
+                        {
+                            throw new ProtocolException("Remote host returned a non-canonical quality profile.");
+                        }
+
+                        _currentQualityProfile = applied;
+                        QualityProfileAppliedReceived?.Invoke(applied);
+                        OnStatus($"畫面模式已切換為 {applied.DisplayName}。");
                         break;
                     case MessageType.Ping:
                         await _messages.WriteAsync(MessageType.Pong, packet.Payload, cancellationToken)

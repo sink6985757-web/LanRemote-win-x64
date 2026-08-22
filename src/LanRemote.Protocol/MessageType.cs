@@ -13,4 +13,6 @@ public enum MessageType : byte
     Disconnect = 9,
     Error = 10,
     Metrics = 11,
+    QualityProfileRequest = 12,
+    QualityProfileApplied = 13,
 }

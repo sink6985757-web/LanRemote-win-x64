@@ -4,7 +4,8 @@ public sealed record ClientHello(
     int ProtocolVersion,
     string DeviceName,
     string OperatingSystem,
-    string NonceBase64);
+    string NonceBase64,
+    QualityPreset InitialQualityPreset);
 
 public sealed record ServerHello(
     int ProtocolVersion,
@@ -14,7 +15,14 @@ public sealed record ServerHello(
 
 public sealed record SessionDecision(bool Accepted, string? Reason);
 
-public sealed record SessionReady(Guid SessionId, int Width, int Height, VideoCodec Codec);
+public sealed record SessionReady(
+    Guid SessionId,
+    int Width,
+    int Height,
+    VideoCodec Codec,
+    QualityProfile QualityProfile);
+
+public sealed record QualityProfileRequest(QualityPreset Preset);
 
 public sealed record ErrorPayload(string Code, string Message);
 

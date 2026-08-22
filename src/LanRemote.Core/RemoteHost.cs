@@ -126,8 +126,12 @@ public sealed class RemoteHost : IAsyncDisposable
             ClientHello hello = PayloadJson.Deserialize<ClientHello>(helloPacket.Payload);
             if (hello.ProtocolVersion != ProtocolConstants.Version)
             {
-                throw new ProtocolException("Client protocol version is not supported.");
+                throw new ProtocolException(
+                    $"協定版本不相容：被控端需要 v{ProtocolConstants.Version}，控制端送出 v{hello.ProtocolVersion}。");
             }
+
+            QualityProfile initialProfile = QualityProfiles.Get(hello.InitialQualityPreset);
+            _screenFrameSource.ApplyQualityProfile(initialProfile);
 
             byte[] clientNonce = DecodeNonce(hello.NonceBase64);
             byte[] serverNonce = RandomNumberGenerator.GetBytes(ProtocolConstants.NonceLength);
@@ -175,7 +179,12 @@ public sealed class RemoteHost : IAsyncDisposable
             }
 
             VideoFramePayload firstFrame = frames.Current;
-            SessionReady ready = new(Guid.NewGuid(), firstFrame.Width, firstFrame.Height, firstFrame.Codec);
+            SessionReady ready = new(
+                Guid.NewGuid(),
+                firstFrame.Width,
+                firstFrame.Height,
+                firstFrame.Codec,
+                _screenFrameSource.CurrentQualityProfile);
             await messages.WriteAsync(
                 MessageType.SessionReady,
                 PayloadJson.Serialize(ready),
@@ -207,6 +216,19 @@ public sealed class RemoteHost : IAsyncDisposable
                 case MessageType.Ping:
                     await messages.WriteAsync(MessageType.Pong, packet.Payload, cancellationToken)
                         .ConfigureAwait(false);
+                    break;
+                case MessageType.QualityProfileRequest:
+                    QualityProfileRequest request =
+                        PayloadJson.Deserialize<QualityProfileRequest>(packet.Payload);
+                    QualityProfile profile = QualityProfiles.Get(request.Preset);
+                    _screenFrameSource.ApplyQualityProfile(profile);
+                    await messages.WriteAsync(
+                        MessageType.QualityProfileApplied,
+                        PayloadJson.Serialize(profile),
+                        cancellationToken).ConfigureAwait(false);
+                    OnStatus($"畫面模式已切換為 {profile.DisplayName}：" +
+                             $"{profile.MaximumWidth}×{profile.MaximumHeight} / " +
+                             $"{profile.FramesPerSecond} fps");
                     break;
                 case MessageType.Disconnect:
                     return;

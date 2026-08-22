@@ -30,7 +30,10 @@ public sealed class RemoteSessionTests
         controller.PairingCodeAvailable += code => controllerPairingCode = code;
         controller.VideoFrameReceived += frame => frameReceived.TrySetResult(frame);
 
-        await controller.ConnectAsync(new IPEndPoint(IPAddress.Loopback, endpoint.Port), timeout.Token);
+        await controller.ConnectAsync(
+            new IPEndPoint(IPAddress.Loopback, endpoint.Port),
+            QualityPreset.Smooth,
+            timeout.Token);
         VideoFramePayload frame = await frameReceived.Task.WaitAsync(timeout.Token);
         RemoteInputEvent expectedInput = new(RemoteInputKind.Key, IsDown: true, VirtualKey: 0x41);
         await controller.SendInputAsync(expectedInput, timeout.Token);
@@ -42,6 +45,21 @@ public sealed class RemoteSessionTests
         Assert.Equal(VideoCodec.Jpeg, frame.Codec);
         Assert.Equal(screen.Frame.Data, frame.Data);
         Assert.Equal(expectedInput, actualInput);
+        Assert.Equal(QualityProfiles.Smooth, screen.CurrentQualityProfile);
+        Assert.Equal(QualityProfiles.Smooth, controller.CurrentQualityProfile);
+
+        TaskCompletionSource<QualityProfile> qualityApplied = NewCompletion<QualityProfile>();
+        controller.QualityProfileAppliedReceived += profile =>
+        {
+            if (profile.Preset == QualityPreset.Quality)
+            {
+                qualityApplied.TrySetResult(profile);
+            }
+        };
+        await controller.ChangeQualityProfileAsync(QualityPreset.Quality, timeout.Token);
+        QualityProfile applied = await qualityApplied.Task.WaitAsync(timeout.Token);
+        Assert.Equal(QualityProfiles.Quality, applied);
+        Assert.Equal(QualityProfiles.Quality, screen.CurrentQualityProfile);
         await controller.DisconnectAsync();
     }
 
@@ -80,6 +98,14 @@ public sealed class RemoteSessionTests
         public int CaptureStarts { get; private set; }
 
         public VideoCodec Codec => VideoCodec.Jpeg;
+
+        public QualityProfile CurrentQualityProfile { get; private set; } = QualityProfiles.Balanced;
+
+        public void ApplyQualityProfile(QualityProfile profile)
+        {
+            Assert.True(QualityProfiles.IsCanonical(profile));
+            CurrentQualityProfile = profile;
+        }
 
         public async IAsyncEnumerable<VideoFramePayload> CaptureAsync(
             [EnumeratorCancellation] CancellationToken cancellationToken)

@@ -6,6 +6,10 @@ public interface IScreenFrameSource : IAsyncDisposable
 {
     VideoCodec Codec { get; }
 
+    QualityProfile CurrentQualityProfile { get; }
+
+    void ApplyQualityProfile(QualityProfile profile);
+
     IAsyncEnumerable<VideoFramePayload> CaptureAsync(CancellationToken cancellationToken);
 }
 

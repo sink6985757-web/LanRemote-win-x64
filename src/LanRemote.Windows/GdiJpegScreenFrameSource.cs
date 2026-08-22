@@ -12,51 +12,40 @@ namespace LanRemote.Windows;
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class GdiJpegScreenFrameSource : IScreenFrameSource
 {
-    private readonly int _framesPerSecond;
-    private readonly int _maximumWidth;
-    private readonly int _maximumHeight;
-    private readonly long _jpegQuality;
     private readonly ImageCodecInfo _jpegEncoder;
+    private QualityProfile _qualityProfile;
 
-    public GdiJpegScreenFrameSource(
-        int framesPerSecond = 30,
-        int maximumWidth = 1920,
-        int maximumHeight = 1080,
-        long jpegQuality = 58)
+    public GdiJpegScreenFrameSource(QualityPreset initialPreset = QualityPreset.Balanced)
     {
-        if (framesPerSecond is < 1 or > 60)
-        {
-            throw new ArgumentOutOfRangeException(nameof(framesPerSecond));
-        }
-
-        if (maximumWidth < 320 || maximumHeight < 240)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maximumWidth));
-        }
-
-        if (jpegQuality is < 20 or > 95)
-        {
-            throw new ArgumentOutOfRangeException(nameof(jpegQuality));
-        }
-
-        _framesPerSecond = framesPerSecond;
-        _maximumWidth = maximumWidth;
-        _maximumHeight = maximumHeight;
-        _jpegQuality = jpegQuality;
+        _qualityProfile = QualityProfiles.Get(initialPreset);
         _jpegEncoder = ImageCodecInfo.GetImageEncoders()
             .Single(codec => codec.FormatID == ImageFormat.Jpeg.Guid);
     }
 
     public VideoCodec Codec => VideoCodec.Jpeg;
 
+    public QualityProfile CurrentQualityProfile => Volatile.Read(ref _qualityProfile);
+
+    public void ApplyQualityProfile(QualityProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (!QualityProfiles.IsCanonical(profile))
+        {
+            throw new ArgumentException("Only canonical LanRemote quality profiles are allowed.", nameof(profile));
+        }
+
+        Volatile.Write(ref _qualityProfile, profile);
+    }
+
     public async IAsyncEnumerable<VideoFramePayload> CaptureAsync(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        TimeSpan frameInterval = TimeSpan.FromSeconds(1d / _framesPerSecond);
         while (!cancellationToken.IsCancellationRequested)
         {
+            QualityProfile profile = CurrentQualityProfile;
+            TimeSpan frameInterval = TimeSpan.FromSeconds(1d / profile.FramesPerSecond);
             Stopwatch timer = Stopwatch.StartNew();
-            yield return CaptureFrame();
+            yield return CaptureFrame(profile);
             timer.Stop();
             TimeSpan delay = frameInterval - timer.Elapsed;
             if (delay > TimeSpan.Zero)
@@ -70,7 +59,7 @@ public sealed class GdiJpegScreenFrameSource : IScreenFrameSource
         }
     }
 
-    private VideoFramePayload CaptureFrame()
+    private VideoFramePayload CaptureFrame(QualityProfile profile)
     {
         Screen primary = Screen.PrimaryScreen ?? throw new InvalidOperationException("找不到主要螢幕。");
         Rectangle bounds = primary.Bounds;
@@ -86,13 +75,15 @@ public sealed class GdiJpegScreenFrameSource : IScreenFrameSource
                 CopyPixelOperation.SourceCopy);
         }
 
-        Size outputSize = FitInside(bounds.Size, new Size(_maximumWidth, _maximumHeight));
+        Size outputSize = FitInside(
+            bounds.Size,
+            new Size(profile.MaximumWidth, profile.MaximumHeight));
         using Bitmap output = outputSize == bounds.Size
             ? (Bitmap)native.Clone()
             : Resize(native, outputSize);
         using MemoryStream stream = new();
         using EncoderParameters encoderParameters = new(1);
-        encoderParameters.Param[0] = new EncoderParameter(Encoder.Quality, _jpegQuality);
+        encoderParameters.Param[0] = new EncoderParameter(Encoder.Quality, profile.JpegQuality);
         output.Save(stream, _jpegEncoder, encoderParameters);
         return new VideoFramePayload(
             output.Width,
