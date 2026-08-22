@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "profile": "full",
+  "authority": {
+    "core": {
+      "repository": "sink6985757-web/cross-device-agent-workflow-core",
+      "revision": "0868a4cc157ae16be32084284450d7e20f6fa341"
+    },
+    "lifecycle": {
+      "repository": "sink6985757-web/cross-device-agent-skills",
+      "revision": "383f50275c68bbb54deeaec7d3ffc13384360528"
+    },
+    "readygate": {
+      "repository": "sink6985757-web/readygate-skill-chatgpt-app",
+      "revision": "7ee423f72d3eaa4cc69b70cf15958fdb82733619"
+    }
+  },
+  "routing": {
+    "part": "windows-desktop-utilities",
+    "project": "lan-windows-remote-control",
+    "project_root": "."
+  },
+  "project": {
+    "github_repository": "NOT_CONFIGURED/NOT_CONFIGURED",
+    "remote": "origin",
+    "default_branch": "main",
+    "project_kind": "code"
+  },
+  "paths": {
+    "agents": "AGENTS.md",
+    "readme": "README.md",
+    "changelog": "CHANGELOG.md",
+    "handoff": "handoff.md",
+    "manifest": ".agents/project-lifecycle.json"
+  },
+  "content": {
+    "tracked_roots": ["."],
+    "excluded_roots": [".git", ".env", "policy.local.yaml", "private", "raw", "artifacts"],
+    "large_file_policy": "repository-default"
+  },
+  "checkpoint": {
+    "mode": "manual",
+    "initial": "push-bootstrap",
+    "startup": "fetch-and-verify",
+    "shutdown": "commit-and-push-current-branch",
+    "branch_policy": "current-work-branch",
+    "readback": "remote-sha",
+    "force_push": false,
+    "pull_mode": "ff-only",
+    "unknown_untracked": "stop",
+    "allow_paths": [
+      ".agents/project-lifecycle.json",
+      "AGENTS.md",
+      "README.md",
+      "CHANGELOG.md",
+      "handoff.md",
+      ".gitignore",
+      "global.json",
+      "Directory.Build.props",
+      "Directory.Packages.props",
+      "LanRemote.sln",
+      "src",
+      "tests",
+      "scripts",
+      "readygate"
+    ],
+    "forbidden_actions": [
+      "create-repository",
+      "force-push",
+      "auto-merge-or-rebase",
+      "tag-or-release",
+      "merge-pull-request",
+      "delete-or-archive",
+      "change-permissions"
+    ]
+  },
+  "device_binding": {
+    "mode": "runtime-only",
+    "local_policy": "policy.local.yaml"
+  },
+  "rollback": {
+    "published_change": "git-revert",
+    "inspect_old_revision": "restore-branch",
+    "behind_clean": "pull-ff-only",
+    "diverged": "stop-preserve-refs",
+    "clone_target": "empty-directory-only"
+  }
+}
