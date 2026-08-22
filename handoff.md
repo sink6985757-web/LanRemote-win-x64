@@ -12,7 +12,7 @@
 - source revision：`11ea76e28ce7d28064260ff3f49d9c1dfcd9f98a`；implementation commit：`b976710`。
 - ZIP：79,784,941 bytes；SHA-256 `5C971B6A750F652A6D22B99C887A3A65066000450FE6239E10701353CFD5A216`。
 - EXE SHA-256：`32CE7CD65AA2396DF246F38678BDB26E9D191C526DCBCE07E95FAEA62CE4020E`。
-- 已驗證：Debug／Release build、22/22 tests、format、NuGet audit、真實 TLS loopback 與本機 WPF 雙實例 GUI 流程。
+- 已驗證：Debug／Release build、22/22 tests、format、NuGet audit、self-contained EXE 啟動、真實 TLS loopback 與本機 WPF 雙實例 GUI 流程。
 - GUI 已驗證：同視窗進入遠端桌面、視窗化、最大化、F11 全螢幕、工具列隱藏／頂端叫回、三種畫質熱切換、斷線返回 launcher。
 - 使用者先前回報舊版兩臺連線正常；這是 `REPORTED`，不能取代新版協定 v2 的 Windows 10／11 跨機證據。
 - 尚未驗證：v2 在 Windows 10 22H2 實際啟動，以及兩個控制方向的跨機畫面、輸入、視窗／畫質操作。
@@ -41,7 +41,7 @@
 
 ## 最近更新
 
-- 時間：2026-08-23 00:10 +08:00
+- 時間：2026-08-23 00:15 +08:00
 - 更新者：Codex
 - 電腦：YULIN-SFG16-72
 - GitHub：`NOT_CONFIGURED`

@@ -29,6 +29,7 @@
 - `dotnet format --verify-no-changes --no-restore`：通過。
 - self-contained win-x64 測試資料夾與 ZIP 已依 source revision `11ea76e28ce7d28064260ff3f49d9c1dfcd9f98a` 重建；ZIP 79,784,941 bytes，SHA-256 `5C971B6A750F652A6D22B99C887A3A65066000450FE6239E10701353CFD5A216`。
 - `LanRemote.App.exe` SHA-256：`32CE7CD65AA2396DF246F38678BDB26E9D191C526DCBCE07E95FAEA62CE4020E`。
+- 直接啟動 `artifacts/LanRemote-win-x64/LanRemote.App.exe` 的 self-contained launcher 冒煙測試：通過。
 - NuGet vulnerability audit：五個專案目前來源未回報已知弱點套件。
 
 ### Delivery

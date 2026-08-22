@@ -4,7 +4,7 @@ profile: general
 subject: LanRemote v2 VNC-style UX 與畫質模式本機測試候選
 scope: Windows 11 25H2 與 Windows 10 22H2 私人區網換角雙向控制
 revision: 11ea76e28ce7d28064260ff3f49d9c1dfcd9f98a
-evidence_cutoff: 2026-08-23 00:10 +08:00
+evidence_cutoff: 2026-08-23 00:15 +08:00
 status: CONDITIONAL
 workflow_state: DELIVERY_REVIEW
 work_order: WO-LANREMOTE-UX-PROFILES-V1
@@ -34,7 +34,7 @@ reviewer: Codex (Agent); Yulin 為工作單確認者、舊版連線回報者與�
 |---|---|---|---|---|
 | 已確認工作單 | VERIFIED | `readygate/WORK_ORDER-UX-PROFILES.md` | WO-LANREMOTE-UX-PROFILES-V1 | 無 |
 | 可回讀原始碼 | VERIFIED | Git `11ea76e28ce7d28064260ff3f49d9c1dfcd9f98a`；implementation `b976710` | 本機 `main` | 無 remote，維持 local-only |
-| 自動驗證 | VERIFIED | Release 22/22、Debug build、format、NuGet audit | .NET SDK 10.0.400 | 尚未在第二臺重跑 |
+| 自動驗證 | VERIFIED | Release 22/22、Debug build、format、NuGet audit、self-contained EXE 啟動 | .NET SDK 10.0.400 | 尚未在第二臺重跑 |
 | 同視窗與模式切換 | VERIFIED | Windows 11 本機兩個真實 EXE、TLS/SAS、持續 frame readback | v2；視窗化／最大化／F11／工具列 | 跨裝置 UI 仍待實測 |
 | 畫質熱切換 | VERIFIED | session 內平衡→流暢→畫質→平衡；狀態回讀 720p30／1080p15／900p24 | GDI/JPEG canonical profiles | 跨裝置流量與效能待觀察 |
 | v2 self-contained 包 | VERIFIED | ZIP `5C971B6A...5A216`；EXE `32CE7CD6...020E` | 79,784,941 bytes；win-x64 | 未簽章，只限自有電腦測試 |
