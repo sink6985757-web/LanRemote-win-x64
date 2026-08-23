@@ -65,16 +65,23 @@
                             <MenuItem x:Name="FullscreenMenuItem" Header="全螢幕(_F)" InputGestureText="F11"
                                       IsCheckable="True" Click="FullscreenMenuItem_Click" />
                             <Separator />
-                            <MenuItem Header="自適應視窗" IsCheckable="True" IsChecked="True" IsEnabled="False" />
+                            <MenuItem Header="縮放模式(_S)">
+                                <MenuItem x:Name="FitScaleMenuItem" Header="符合視窗（保留比例）"
+                                          IsCheckable="True" Click="FitScaleMenuItem_Click" />
+                                <MenuItem x:Name="StretchScaleMenuItem" Header="拉伸滿版"
+                                          IsCheckable="True" IsChecked="True" Click="StretchScaleMenuItem_Click" />
+                                <MenuItem x:Name="CropScaleMenuItem" Header="裁切滿版（保留比例）"
+                                          IsCheckable="True" Click="CropScaleMenuItem_Click" />
+                            </MenuItem>
                             <MenuItem x:Name="ShowChromeMenuItem" Header="顯示工具列(_T)" IsCheckable="True"
                                       IsChecked="True" Click="ShowChromeMenuItem_Click" />
                         </MenuItem>
                         <MenuItem Header="_Quality">
-                            <MenuItem x:Name="SmoothQualityMenuItem" Header="流暢 — 720p / 30 fps"
+                            <MenuItem x:Name="SmoothQualityMenuItem" Header="流暢 — 720p / 60 fps"
                                       IsCheckable="True" Click="SmoothQualityMenuItem_Click" />
-                            <MenuItem x:Name="BalancedQualityMenuItem" Header="平衡 — 900p / 24 fps"
+                            <MenuItem x:Name="BalancedQualityMenuItem" Header="平衡 — 900p / 48 fps"
                                       IsCheckable="True" IsChecked="True" Click="BalancedQualityMenuItem_Click" />
-                            <MenuItem x:Name="QualityQualityMenuItem" Header="畫質 — 1080p / 15 fps"
+                            <MenuItem x:Name="QualityQualityMenuItem" Header="畫質 — 1080p / 30 fps"
                                       IsCheckable="True" Click="QualityQualityMenuItem_Click" />
                         </MenuItem>
                     </Menu>
@@ -91,10 +98,31 @@
                             <TextBlock Text="畫面：" Margin="8,0,4,0" VerticalAlignment="Center" />
                             <ComboBox x:Name="QualityComboBox" Width="185" SelectedIndex="1"
                                       SelectionChanged="QualityComboBox_SelectionChanged">
-                                <ComboBoxItem Content="流暢  720p / 30 fps" />
-                                <ComboBoxItem Content="平衡  900p / 24 fps" />
-                                <ComboBoxItem Content="畫質  1080p / 15 fps" />
+                                <ComboBoxItem Content="流暢  720p / 60 fps" />
+                                <ComboBoxItem Content="平衡  900p / 48 fps" />
+                                <ComboBoxItem Content="畫質  1080p / 30 fps" />
                             </ComboBox>
+                            <Separator />
+                            <TextBlock Text="縮放：" Margin="8,0,4,0" VerticalAlignment="Center" />
+                            <ComboBox x:Name="ScaleModeComboBox" Width="120" SelectedIndex="1"
+                                      SelectionChanged="ScaleModeComboBox_SelectionChanged">
+                                <ComboBoxItem Content="符合視窗" />
+                                <ComboBoxItem Content="拉伸滿版" />
+                                <ComboBoxItem Content="裁切滿版" />
+                            </ComboBox>
+                            <Separator />
+                            <Button x:Name="SasToolButton" Style="{StaticResource ToolButtonStyle}"
+                                    Content="Ctrl+Alt+Delete" Click="SasToolButton_Click" />
+                            <Button x:Name="CtrlAltZeroToolButton" Style="{StaticResource ToolButtonStyle}"
+                                    Content="Ctrl+Alt+0" Click="CtrlAltZeroToolButton_Click" />
+                            <Menu Background="Transparent" Foreground="#162033" VerticalAlignment="Center">
+                                <MenuItem x:Name="ShortcutToolMenu" Header="⌨ 自訂按鍵">
+                                    <MenuItem x:Name="CustomShortcutEntriesMenu" Header="送出自訂按鍵" />
+                                    <Separator />
+                                    <MenuItem Header="新增自訂按鍵…" Click="AddCustomShortcutMenuItem_Click" />
+                                    <MenuItem x:Name="RemoveCustomShortcutMenu" Header="移除自訂按鍵" />
+                                </MenuItem>
+                            </Menu>
                             <Separator />
                             <TextBlock x:Name="SessionInfoText" Text="尚未連線" Margin="8,0"
                                        Foreground="#46566D" VerticalAlignment="Center" />
@@ -173,7 +201,7 @@
                                 <TextBlock Text="被控端位址" Foreground="#BCC9DA" />
                                 <TextBox x:Name="RemoteEndpointTextBox" Text="192.168.1.2:45873" />
                                 <TextBlock Text="連線畫面模式" Foreground="#BCC9DA" Margin="0,10,0,0" />
-                                <TextBlock x:Name="SelectedQualityText" Text="平衡 — 1600×900 / 24 fps"
+                                <TextBlock x:Name="SelectedQualityText" Text="平衡 — 1600×900 / 48 fps"
                                            Foreground="{StaticResource AccentBrush}" Margin="0,5,0,0" />
                                 <TextBlock Text="本次配對碼" Foreground="#BCC9DA" Margin="0,10,0,0" />
                                 <TextBlock x:Name="PairingCodeText" Text="—— —— ——" FontFamily="Consolas"
@@ -193,12 +221,21 @@
                                Text="正在等待第一張遠端畫面…"
                                Foreground="#60728E" HorizontalAlignment="Center" VerticalAlignment="Center"
                                FontSize="17" />
-                    <Image x:Name="RemoteDisplay" Stretch="Uniform" Focusable="True" Visibility="Collapsed"
+                    <Image x:Name="RemoteDisplay" Stretch="Fill" Focusable="True" Visibility="Collapsed"
+                           Cursor="None" MouseEnter="RemoteDisplay_MouseEnter" MouseLeave="RemoteDisplay_MouseLeave"
                            MouseMove="RemoteDisplay_MouseMove"
                            MouseDown="RemoteDisplay_MouseDown" MouseUp="RemoteDisplay_MouseUp"
                            MouseWheel="RemoteDisplay_MouseWheel"
                            PreviewKeyDown="RemoteDisplay_PreviewKeyDown"
                            PreviewKeyUp="RemoteDisplay_PreviewKeyUp" />
+                    <Canvas x:Name="ControllerCursorLayer" IsHitTestVisible="False" Visibility="Collapsed">
+                        <Ellipse x:Name="ControllerCursorHalo" Width="30" Height="30"
+                                 Fill="#334FD1C5" Stroke="#884FD1C5" StrokeThickness="1" />
+                        <Path x:Name="ControllerCursorArrow"
+                              Data="M 0,0 L 0,22 L 5.5,16.5 L 10,25 L 14,23 L 9.5,14.5 L 18,14.5 Z"
+                              Fill="#4FD1C5" Stroke="White" StrokeThickness="1.5"
+                              StrokeLineJoin="Round" />
+                    </Canvas>
                 </Grid>
             </Grid>
         </DockPanel>

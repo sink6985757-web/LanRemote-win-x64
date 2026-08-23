@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using LanRemote.Core;
 using LanRemote.Protocol;
@@ -73,6 +74,7 @@ public sealed class GdiJpegScreenFrameSource : IScreenFrameSource
                 0,
                 bounds.Size,
                 CopyPixelOperation.SourceCopy);
+            DrawNativeCursor(graphics, bounds);
         }
 
         Size outputSize = FitInside(
@@ -114,6 +116,114 @@ public sealed class GdiJpegScreenFrameSource : IScreenFrameSource
         return new Size(
             Math.Max(1, (int)Math.Round(source.Width * ratio)),
             Math.Max(1, (int)Math.Round(source.Height * ratio)));
+    }
+
+    private static void DrawNativeCursor(Graphics graphics, Rectangle screenBounds)
+    {
+        CursorInfo cursorInfo = new()
+        {
+            Size = Marshal.SizeOf<CursorInfo>(),
+        };
+        if (!GetCursorInfo(ref cursorInfo) || cursorInfo.Flags != CursorShowing || cursorInfo.Cursor == nint.Zero)
+        {
+            return;
+        }
+
+        nint icon = CopyIcon(cursorInfo.Cursor);
+        if (icon == nint.Zero)
+        {
+            return;
+        }
+
+        IconInfo iconInfo = default;
+        try
+        {
+            if (!GetIconInfo(icon, out iconInfo))
+            {
+                return;
+            }
+
+            int x = cursorInfo.Position.X - screenBounds.Left - checked((int)iconInfo.XHotspot);
+            int y = cursorInfo.Position.Y - screenBounds.Top - checked((int)iconInfo.YHotspot);
+            nint deviceContext = graphics.GetHdc();
+            try
+            {
+                _ = DrawIconEx(deviceContext, x, y, icon, 0, 0, 0, nint.Zero, DrawIconNormal);
+            }
+            finally
+            {
+                graphics.ReleaseHdc(deviceContext);
+            }
+        }
+        finally
+        {
+            if (iconInfo.MaskBitmap != nint.Zero)
+            {
+                _ = DeleteObject(iconInfo.MaskBitmap);
+            }
+
+            if (iconInfo.ColorBitmap != nint.Zero)
+            {
+                _ = DeleteObject(iconInfo.ColorBitmap);
+            }
+
+            _ = DestroyIcon(icon);
+        }
+    }
+
+    private const int CursorShowing = 1;
+    private const uint DrawIconNormal = 3;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorInfo(ref CursorInfo cursorInfo);
+
+    [DllImport("user32.dll")]
+    private static extern nint CopyIcon(nint icon);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetIconInfo(nint icon, out IconInfo iconInfo);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DrawIconEx(
+        nint deviceContext,
+        int x,
+        int y,
+        nint icon,
+        int width,
+        int height,
+        uint animationStep,
+        nint flickerFreeBrush,
+        uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DestroyIcon(nint icon);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteObject(nint graphicsObject);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CursorInfo
+    {
+        public int Size;
+        public int Flags;
+        public nint Cursor;
+        public Point Position;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IconInfo
+    {
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool IsIcon;
+        public uint XHotspot;
+        public uint YHotspot;
+        public nint MaskBitmap;
+        public nint ColorBitmap;
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;

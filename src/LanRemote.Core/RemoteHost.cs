@@ -13,15 +13,20 @@ public sealed class RemoteHost : IAsyncDisposable
 {
     private readonly IScreenFrameSource _screenFrameSource;
     private readonly IInputInjector _inputInjector;
+    private readonly ISecureAttentionProvider _secureAttentionProvider;
     private readonly CancellationTokenSource _lifetime = new();
     private TcpListener? _listener;
     private X509Certificate2? _certificate;
     private Task? _acceptLoop;
 
-    public RemoteHost(IScreenFrameSource screenFrameSource, IInputInjector inputInjector)
+    public RemoteHost(
+        IScreenFrameSource screenFrameSource,
+        IInputInjector inputInjector,
+        ISecureAttentionProvider? secureAttentionProvider = null)
     {
         _screenFrameSource = screenFrameSource ?? throw new ArgumentNullException(nameof(screenFrameSource));
         _inputInjector = inputInjector ?? throw new ArgumentNullException(nameof(inputInjector));
+        _secureAttentionProvider = secureAttentionProvider ?? new UnavailableSecureAttentionProvider();
     }
 
     public Func<PairingRequest, CancellationToken, Task<bool>>? PairingApprovalHandler { get; set; }
@@ -229,6 +234,20 @@ public sealed class RemoteHost : IAsyncDisposable
                     OnStatus($"畫面模式已切換為 {profile.DisplayName}：" +
                              $"{profile.MaximumWidth}×{profile.MaximumHeight} / " +
                              $"{profile.FramesPerSecond} fps");
+                    break;
+                case MessageType.SecureAttentionRequest:
+                    SecureAttentionRequest secureAttentionRequest =
+                        PayloadJson.Deserialize<SecureAttentionRequest>(packet.Payload);
+                    SecureAttentionResult secureAttentionResult =
+                        await _secureAttentionProvider.RequestAsync(secureAttentionRequest, cancellationToken)
+                            .ConfigureAwait(false);
+                    await messages.WriteAsync(
+                        MessageType.SecureAttentionResult,
+                        PayloadJson.Serialize(secureAttentionResult),
+                        cancellationToken).ConfigureAwait(false);
+                    OnStatus(secureAttentionResult.Succeeded
+                        ? "已送出 Ctrl+Alt+Delete。"
+                        : secureAttentionResult.Message);
                     break;
                 case MessageType.Disconnect:
                     return;

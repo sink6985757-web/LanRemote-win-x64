@@ -32,21 +32,21 @@ public static class QualityProfiles
         QualityPreset.Smooth,
         1280,
         720,
-        30,
+        60,
         40);
 
     public static QualityProfile Balanced { get; } = new(
         QualityPreset.Balanced,
         1600,
         900,
-        24,
+        48,
         60);
 
     public static QualityProfile Quality { get; } = new(
         QualityPreset.Quality,
         1920,
         1080,
-        15,
+        30,
         82);
 
     public static QualityProfile Get(QualityPreset preset) => preset switch

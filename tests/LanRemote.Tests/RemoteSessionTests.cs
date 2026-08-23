@@ -83,6 +83,38 @@ public sealed class RemoteSessionTests
         Assert.Equal(0, screen.CaptureStarts);
     }
 
+    [Fact]
+    public async Task ApprovedSession_RoundTripsSecureAttentionResult()
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
+        FakeScreenFrameSource screen = new();
+        RecordingSecureAttentionProvider secureAttention = new();
+        await using RemoteHost host = new(screen, new NullInputInjector(), secureAttention)
+        {
+            PairingApprovalHandler = (_, _) => Task.FromResult(true),
+        };
+        await host.StartAsync(0, timeout.Token);
+        IPEndPoint endpoint = Assert.IsType<IPEndPoint>(host.ListeningEndpoint);
+
+        await using RemoteController controller = new();
+        TaskCompletionSource<SecureAttentionResult> resultReceived =
+            NewCompletion<SecureAttentionResult>();
+        controller.SecureAttentionResultReceived += result => resultReceived.TrySetResult(result);
+        await controller.ConnectAsync(
+            new IPEndPoint(IPAddress.Loopback, endpoint.Port),
+            timeout.Token);
+
+        Guid? requestId = await controller.RequestSecureAttentionAsync(timeout.Token);
+        SecureAttentionResult result = await resultReceived.Task.WaitAsync(timeout.Token);
+
+        Assert.NotNull(requestId);
+        Assert.Equal(requestId, secureAttention.LastRequestId);
+        Assert.Equal(requestId, result.RequestId);
+        Assert.True(result.Succeeded);
+        Assert.Equal("accepted-for-test", result.Message);
+        await controller.DisconnectAsync();
+    }
+
     private static TaskCompletionSource<T> NewCompletion<T>() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -134,6 +166,23 @@ public sealed class RemoteSessionTests
             cancellationToken.ThrowIfCancellationRequested();
             NextInput.TrySetResult(inputEvent);
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingSecureAttentionProvider : ISecureAttentionProvider
+    {
+        public Guid? LastRequestId { get; private set; }
+
+        public ValueTask<SecureAttentionResult> RequestAsync(
+            SecureAttentionRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            LastRequestId = request.RequestId;
+            return ValueTask.FromResult(new SecureAttentionResult(
+                request.RequestId,
+                true,
+                "accepted-for-test"));
         }
     }
 }

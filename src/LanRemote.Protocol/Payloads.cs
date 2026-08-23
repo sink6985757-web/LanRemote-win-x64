@@ -24,6 +24,10 @@ public sealed record SessionReady(
 
 public sealed record QualityProfileRequest(QualityPreset Preset);
 
+public sealed record SecureAttentionRequest(Guid RequestId);
+
+public sealed record SecureAttentionResult(Guid RequestId, bool Succeeded, string Message);
+
 public sealed record ErrorPayload(string Code, string Message);
 
 public sealed record MetricsPayload(

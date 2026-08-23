@@ -15,6 +15,7 @@ elseif (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
 }
 
 $stagingRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("LanRemotePublish-" + [guid]::NewGuid().ToString("N"))
+$archiveStaging = Join-Path ([System.IO.Path]::GetTempPath()) ("LanRemoteArchive-" + [guid]::NewGuid().ToString("N") + ".zip")
 $stagingRoot = [System.IO.Path]::GetFullPath($stagingRoot)
 $expectedTempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
 if (-not $stagingRoot.StartsWith($expectedTempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -42,18 +43,50 @@ try {
         throw "Self-contained win-x64 publish failed."
     }
 
+    $serviceStaging = Join-Path $stagingRoot "service"
+    & dotnet publish (Join-Path $projectRoot "src\LanRemote.SasService\LanRemote.SasService.csproj") `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained true `
+        --output $serviceStaging `
+        -p:PublishSingleFile=false `
+        -p:DebugType=None `
+        -p:DebugSymbols=false
+    if ($LASTEXITCODE -ne 0) {
+        throw "SAS service self-contained win-x64 publish failed."
+    }
+
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
     Copy-Item -Path (Join-Path $stagingRoot "*") -Destination $OutputDirectory -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "PACKAGE-README.txt") `
         -Destination (Join-Path $OutputDirectory "README.txt") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "New-TwoPcEvidence.ps1") `
         -Destination (Join-Path $OutputDirectory "New-TwoPcEvidence.ps1") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "install-sas-service.ps1") `
+        -Destination (Join-Path $OutputDirectory "install-sas-service.ps1") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "uninstall-sas-service.ps1") `
+        -Destination (Join-Path $OutputDirectory "uninstall-sas-service.ps1") -Force
     $executable = Join-Path $OutputDirectory "LanRemote.App.exe"
     $hash = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
-    ("{0} *LanRemote.App.exe" -f $hash) | Set-Content `
-        -LiteralPath (Join-Path $OutputDirectory "SHA256.txt") -Encoding ascii
+    $hashTargets = @(
+        "LanRemote.App.exe",
+        "LanRemote.App.dll",
+        "LanRemote.Core.dll",
+        "LanRemote.Protocol.dll",
+        "LanRemote.Windows.dll",
+        "service\LanRemote.SasService.exe",
+        "service\LanRemote.SasService.dll",
+        "install-sas-service.ps1",
+        "uninstall-sas-service.ps1"
+    )
+    $hashLines = foreach ($relativePath in $hashTargets) {
+        $targetHash = (Get-FileHash -LiteralPath (Join-Path $OutputDirectory $relativePath) -Algorithm SHA256).Hash
+        "{0} *{1}" -f $targetHash, $relativePath
+    }
+    $hashLines | Set-Content -LiteralPath (Join-Path $OutputDirectory "SHA256.txt") -Encoding ascii
     $archive = ([System.IO.Path]::GetFullPath($OutputDirectory).TrimEnd('\') + ".zip")
-    Compress-Archive -Path (Join-Path $OutputDirectory "*") -DestinationPath $archive -Force
+    Compress-Archive -Path (Join-Path $OutputDirectory "*") -DestinationPath $archiveStaging
+    Copy-Item -LiteralPath $archiveStaging -Destination $archive -Force
     [pscustomobject]@{
         OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
         Archive         = $archive
@@ -66,6 +99,12 @@ finally {
         $resolvedStaging = [System.IO.Path]::GetFullPath($stagingRoot)
         if ($resolvedStaging.StartsWith($expectedTempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
             Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
+        }
+    }
+    if (Test-Path -LiteralPath $archiveStaging) {
+        $resolvedArchiveStaging = [System.IO.Path]::GetFullPath($archiveStaging)
+        if ($resolvedArchiveStaging.StartsWith($expectedTempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Remove-Item -LiteralPath $resolvedArchiveStaging -Force
         }
     }
 }

@@ -11,6 +11,7 @@ namespace LanRemote.Core;
 public sealed class RemoteController : IAsyncDisposable
 {
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly SemaphoreSlim _inputSequenceGate = new(1, 1);
     private TcpClient? _client;
     private FramedMessageStream? _messages;
     private Task? _reader;
@@ -28,6 +29,8 @@ public sealed class RemoteController : IAsyncDisposable
     public event Action<MetricsPayload>? MetricsReceived;
 
     public event Action<QualityProfile>? QualityProfileAppliedReceived;
+
+    public event Action<SecureAttentionResult>? SecureAttentionResultReceived;
 
     public bool IsConnected => _ready && _client?.Connected == true;
 
@@ -182,6 +185,44 @@ public sealed class RemoteController : IAsyncDisposable
         RemoteInputEvent inputEvent,
         CancellationToken cancellationToken = default)
     {
+        await _inputSequenceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await WriteInputCoreAsync(inputEvent, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _inputSequenceGate.Release();
+        }
+    }
+
+    public async ValueTask SendShortcutAsync(
+        RemoteShortcut shortcut,
+        CancellationToken cancellationToken = default)
+    {
+        if (!RemoteShortcut.TryValidate(shortcut, out string error))
+        {
+            throw new ArgumentException(error, nameof(shortcut));
+        }
+
+        await _inputSequenceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            foreach (RemoteInputEvent inputEvent in shortcut.ToInputEvents())
+            {
+                await WriteInputCoreAsync(inputEvent, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _inputSequenceGate.Release();
+        }
+    }
+
+    private async ValueTask WriteInputCoreAsync(
+        RemoteInputEvent inputEvent,
+        CancellationToken cancellationToken)
+    {
         if (!_ready || _messages is null)
         {
             return;
@@ -210,6 +251,22 @@ public sealed class RemoteController : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask<Guid?> RequestSecureAttentionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!_ready || _messages is null)
+        {
+            return null;
+        }
+
+        Guid requestId = Guid.NewGuid();
+        await _messages.WriteAsync(
+            MessageType.SecureAttentionRequest,
+            PayloadJson.Serialize(new SecureAttentionRequest(requestId)),
+            cancellationToken).ConfigureAwait(false);
+        return requestId;
+    }
+
     private async Task ReadServerMessagesAsync(CancellationToken cancellationToken)
     {
         try
@@ -235,6 +292,14 @@ public sealed class RemoteController : IAsyncDisposable
                         _currentQualityProfile = applied;
                         QualityProfileAppliedReceived?.Invoke(applied);
                         OnStatus($"畫面模式已切換為 {applied.DisplayName}。");
+                        break;
+                    case MessageType.SecureAttentionResult:
+                        SecureAttentionResult result =
+                            PayloadJson.Deserialize<SecureAttentionResult>(packet.Payload);
+                        SecureAttentionResultReceived?.Invoke(result);
+                        OnStatus(result.Succeeded
+                            ? "被控端已接受 Ctrl+Alt+Delete 要求。"
+                            : result.Message);
                         break;
                     case MessageType.Ping:
                         await _messages.WriteAsync(MessageType.Pong, packet.Payload, cancellationToken)
@@ -328,6 +393,7 @@ public sealed class RemoteController : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await DisconnectAsync().ConfigureAwait(false);
+        _inputSequenceGate.Dispose();
         _lifetime.Dispose();
     }
 }

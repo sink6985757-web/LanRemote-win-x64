@@ -1,0 +1,37 @@
+<Window x:Class="LanRemote.App.ShortcutEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="新增自訂按鍵" Width="440" Height="285"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="#0B1220" Foreground="#E5EDF8"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="名稱" Foreground="#BCC9DA" />
+        <TextBox x:Name="NameTextBox" Grid.Row="1" Margin="0,6,0,14" Padding="9,7"
+                 Background="#111C30" Foreground="White" BorderBrush="#38506E" />
+        <StackPanel Grid.Row="2">
+            <TextBlock Text="按下要送到遠端的組合鍵" Foreground="#BCC9DA" />
+            <Button x:Name="CaptureButton" Margin="0,6,0,8" Padding="12"
+                    Background="#111C30" BorderBrush="#4FD1C5" BorderThickness="1"
+                    HorizontalContentAlignment="Left" Click="CaptureButton_Click">
+                <TextBlock x:Name="GestureText" Text="尚未指定" FontSize="17"
+                           FontWeight="SemiBold" Foreground="#4FD1C5" />
+            </Button>
+        </StackPanel>
+        <TextBlock Grid.Row="3" Text="不接受 Windows 鍵、Ctrl+Alt+Delete、Alt+F4、Ctrl+Escape。最多可保存 20 組。"
+                   Foreground="#91A4BF" TextWrapping="Wrap" />
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="取消" Width="82" Margin="0,0,8,0" IsCancel="True" />
+            <Button Content="新增" Width="82" IsDefault="True" Click="AddButton_Click"
+                    Background="#1D4ED8" Foreground="White" />
+        </StackPanel>
+    </Grid>
+</Window>

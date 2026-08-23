@@ -15,4 +15,6 @@ public enum MessageType : byte
     Metrics = 11,
     QualityProfileRequest = 12,
     QualityProfileApplied = 13,
+    SecureAttentionRequest = 14,
+    SecureAttentionResult = 15,
 }

@@ -5,6 +5,7 @@ using System.Net;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using LanRemote.Core;
 using LanRemote.Protocol;
@@ -15,17 +16,29 @@ namespace LanRemote.App;
 public partial class MainWindow : Window
 {
     private readonly Stopwatch _mouseMoveThrottle = Stopwatch.StartNew();
+    private readonly Stopwatch _presentationRateTimer = Stopwatch.StartNew();
+    private readonly RemoteShortcutStore _shortcutStore = new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "LanRemote",
+        "shortcuts.json"));
+    private readonly List<RemoteShortcut> _customShortcuts = [];
+    private readonly LatestValueBuffer<VideoFramePayload> _frameBuffer = new();
     private RemoteHost? _host;
     private RemoteController? _controller;
+    private int _framePresentationScheduled;
+    private long _presentedFramesInInterval;
+    private double _currentPresentationFps;
     private int _remoteWidth;
     private int _remoteHeight;
     private long _lastFrameTimestamp;
     private bool _closing;
-    private bool _sessionViewActive;
+    private volatile bool _sessionViewActive;
     private bool _chromePinned = true;
     private bool _chromeTemporarilyRevealed;
     private bool _syncingQualityUi;
+    private bool _syncingScaleUi;
     private QualityPreset _selectedQualityPreset = QualityPreset.Balanced;
+    private RemoteScaleMode _scaleMode = RemoteScaleMode.Stretch;
     private RemoteWindowMode _remoteWindowMode = RemoteWindowMode.Windowed;
     private RemoteWindowMode _modeBeforeFullscreen = RemoteWindowMode.Windowed;
     private Rect _windowedBounds;
@@ -40,6 +53,9 @@ public partial class MainWindow : Window
         SaveWindowedBounds();
         RefreshLocalAddresses();
         ApplyQualityUi(QualityProfiles.Get(_selectedQualityPreset));
+        _customShortcuts.AddRange(_shortcutStore.Load());
+        RebuildShortcutMenus();
+        ApplyScaleMode(RemoteScaleMode.Stretch);
         SetRoleUi();
     }
 
@@ -75,7 +91,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        RemoteHost host = new(new GdiJpegScreenFrameSource(), new WindowsInputInjector());
+        RemoteHost host = new(
+            new GdiJpegScreenFrameSource(),
+            new WindowsInputInjector(),
+            new NamedPipeSecureAttentionProvider());
         host.StatusChanged += message => RunOnUi(() => SetStatus(message));
         host.MetricsChanged += metrics => RunOnUi(() =>
             MetricsText.Text = $"送出 {metrics.SentFrames} frames｜最後 {metrics.LastFrameBytes / 1024d:F0} KiB");
@@ -171,12 +190,25 @@ public partial class MainWindow : Window
             SessionInfoText.Text = $"{profile.DisplayName}｜{profile.MaximumWidth}×{profile.MaximumHeight}｜" +
                                    $"{profile.FramesPerSecond} fps";
         });
-        controller.VideoFrameReceived += DisplayFrame;
+        controller.SecureAttentionResultReceived += result => RunOnUi(() =>
+        {
+            SetStatus(result.Message);
+            if (!result.Succeeded)
+            {
+                MessageBox.Show(
+                    this,
+                    result.Message + "\n\n程式不會自動安裝服務或修改 Windows 安全性原則。",
+                    "Ctrl+Alt+Delete 尚未就緒",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+        });
+        controller.VideoFrameReceived += EnqueueFrame;
         controller.MetricsReceived += metrics => RunOnUi(() =>
         {
             long age = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _lastFrameTimestamp);
-            MetricsText.Text = $"{metrics.SentFrames} frames｜{metrics.LastFrameBytes / 1024d:F0} KiB｜" +
-                               $"畫面年齡約 {age} ms";
+            MetricsText.Text = $"實際 {_currentPresentationFps:F1} fps｜丟棄 {_frameBuffer.DroppedCount}｜" +
+                               $"{metrics.LastFrameBytes / 1024d:F0} KiB｜畫面年齡約 {age} ms";
         });
 
         _controller = controller;
@@ -199,6 +231,10 @@ public partial class MainWindow : Window
 
     private void EnterSessionView(SessionReady ready)
     {
+        _frameBuffer.Reset();
+        _presentedFramesInInterval = 0;
+        _currentPresentationFps = 0;
+        _presentationRateTimer.Restart();
         _remoteWidth = ready.Width;
         _remoteHeight = ready.Height;
         _sessionViewActive = true;
@@ -248,6 +284,9 @@ public partial class MainWindow : Window
         _sessionViewActive = false;
         SetChromePinned(true);
         RemoteDisplay.Source = null;
+        _frameBuffer.Clear();
+        Interlocked.Exchange(ref _framePresentationScheduled, 0);
+        ControllerCursorLayer.Visibility = Visibility.Collapsed;
         RemoteDisplay.Visibility = Visibility.Collapsed;
         RemoteDisplayPlaceholder.Visibility = Visibility.Visible;
         SessionView.Visibility = Visibility.Collapsed;
@@ -257,11 +296,38 @@ public partial class MainWindow : Window
         SessionInfoText.Text = "尚未連線";
     }
 
-    private void DisplayFrame(VideoFramePayload frame)
+    private void EnqueueFrame(VideoFramePayload frame)
     {
+        if (!_sessionViewActive)
+        {
+            return;
+        }
+
+        _frameBuffer.Offer(frame);
+        ScheduleFramePresentation();
+    }
+
+    private void ScheduleFramePresentation()
+    {
+        if (Interlocked.CompareExchange(ref _framePresentationScheduled, 1, 0) == 0)
+        {
+            RunOnUi(PresentLatestFrame);
+        }
+    }
+
+    private void PresentLatestFrame()
+    {
+        VideoFramePayload? frame = _frameBuffer.Take();
+        if (frame is null)
+        {
+            Interlocked.Exchange(ref _framePresentationScheduled, 0);
+            return;
+        }
+
         if (frame.Codec != VideoCodec.Jpeg)
         {
-            RunOnUi(() => SetStatus($"目前 UI 尚未支援解碼 {frame.Codec}。"));
+            SetStatus($"目前 UI 尚未支援解碼 {frame.Codec}。");
+            CompleteFramePresentation();
             return;
         }
 
@@ -275,18 +341,33 @@ public partial class MainWindow : Window
             bitmap.EndInit();
             bitmap.Freeze();
             _lastFrameTimestamp = frame.CapturedAtUnixMilliseconds;
-            RunOnUi(() =>
+            _remoteWidth = frame.Width;
+            _remoteHeight = frame.Height;
+            RemoteDisplay.Source = bitmap;
+            RemoteDisplayPlaceholder.Visibility = Visibility.Collapsed;
+            RemoteDisplay.Visibility = Visibility.Visible;
+            _presentedFramesInInterval++;
+            if (_presentationRateTimer.Elapsed >= TimeSpan.FromSeconds(1))
             {
-                _remoteWidth = frame.Width;
-                _remoteHeight = frame.Height;
-                RemoteDisplay.Source = bitmap;
-                RemoteDisplayPlaceholder.Visibility = Visibility.Collapsed;
-                RemoteDisplay.Visibility = Visibility.Visible;
-            });
+                _currentPresentationFps = _presentedFramesInInterval / _presentationRateTimer.Elapsed.TotalSeconds;
+                _presentedFramesInInterval = 0;
+                _presentationRateTimer.Restart();
+            }
         }
         catch (Exception exception) when (exception is NotSupportedException or IOException)
         {
-            RunOnUi(() => SetStatus($"遠端畫面解碼失敗：{exception.Message}"));
+            SetStatus($"遠端畫面解碼失敗：{exception.Message}");
+        }
+
+        CompleteFramePresentation();
+    }
+
+    private void CompleteFramePresentation()
+    {
+        Interlocked.Exchange(ref _framePresentationScheduled, 0);
+        if (_frameBuffer.HasValue)
+        {
+            ScheduleFramePresentation();
         }
     }
 
@@ -363,6 +444,225 @@ public partial class MainWindow : Window
         finally
         {
             _syncingQualityUi = false;
+        }
+    }
+
+    private void FitScaleMenuItem_Click(object sender, RoutedEventArgs e) =>
+        ApplyScaleMode(RemoteScaleMode.Fit);
+
+    private void StretchScaleMenuItem_Click(object sender, RoutedEventArgs e) =>
+        ApplyScaleMode(RemoteScaleMode.Stretch);
+
+    private void CropScaleMenuItem_Click(object sender, RoutedEventArgs e) =>
+        ApplyScaleMode(RemoteScaleMode.Crop);
+
+    private void ScaleModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _syncingScaleUi)
+        {
+            return;
+        }
+
+        ApplyScaleMode(ScaleModeComboBox.SelectedIndex switch
+        {
+            0 => RemoteScaleMode.Fit,
+            1 => RemoteScaleMode.Stretch,
+            2 => RemoteScaleMode.Crop,
+            _ => RemoteScaleMode.Stretch,
+        });
+    }
+
+    private void ApplyScaleMode(RemoteScaleMode mode)
+    {
+        _scaleMode = mode;
+        RemoteDisplay.Stretch = mode switch
+        {
+            RemoteScaleMode.Fit => Stretch.Uniform,
+            RemoteScaleMode.Stretch => Stretch.Fill,
+            RemoteScaleMode.Crop => Stretch.UniformToFill,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+
+        FitScaleMenuItem.IsChecked = mode == RemoteScaleMode.Fit;
+        StretchScaleMenuItem.IsChecked = mode == RemoteScaleMode.Stretch;
+        CropScaleMenuItem.IsChecked = mode == RemoteScaleMode.Crop;
+        _syncingScaleUi = true;
+        ScaleModeComboBox.SelectedIndex = mode switch
+        {
+            RemoteScaleMode.Fit => 0,
+            RemoteScaleMode.Stretch => 1,
+            RemoteScaleMode.Crop => 2,
+            _ => 1,
+        };
+        _syncingScaleUi = false;
+
+        if (_sessionViewActive)
+        {
+            string displayName = mode switch
+            {
+                RemoteScaleMode.Fit => "符合視窗",
+                RemoteScaleMode.Stretch => "拉伸滿版",
+                RemoteScaleMode.Crop => "裁切滿版",
+                _ => mode.ToString(),
+            };
+            SetStatus($"縮放模式已切換為{displayName}。");
+        }
+    }
+
+    private async void SasToolButton_Click(object sender, RoutedEventArgs e)
+    {
+        RemoteController? controller = _controller;
+        if (controller?.IsConnected != true)
+        {
+            SetStatus("請先建立控制 session，再送出 Ctrl+Alt+Delete。");
+            return;
+        }
+
+        try
+        {
+            SetStatus("正在請求被控端 SAS 服務送出 Ctrl+Alt+Delete…");
+            _ = await controller.RequestSecureAttentionAsync();
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+        {
+            SetStatus($"Ctrl+Alt+Delete 傳送失敗：{exception.Message}");
+        }
+    }
+
+    private async void CtrlAltZeroToolButton_Click(object sender, RoutedEventArgs e) =>
+        await SendShortcutSafelyAsync(RemoteShortcut.ControlAltZero);
+
+    private void AddCustomShortcutMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_customShortcuts.Count >= RemoteShortcutStore.MaximumShortcutCount)
+        {
+            SetStatus($"自訂快捷鍵最多 {RemoteShortcutStore.MaximumShortcutCount} 組。");
+            return;
+        }
+
+        ShortcutEditorWindow editor = new()
+        {
+            Owner = this,
+        };
+        if (editor.ShowDialog() != true || editor.Shortcut is null)
+        {
+            return;
+        }
+
+        if (_customShortcuts.Any(shortcut =>
+                shortcut.VirtualKey == editor.Shortcut.VirtualKey &&
+                shortcut.Modifiers == editor.Shortcut.Modifiers))
+        {
+            SetStatus("相同的按鍵組合已存在。");
+            return;
+        }
+
+        _customShortcuts.Add(editor.Shortcut);
+        PersistShortcuts();
+    }
+
+    private async void CustomShortcutMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { Tag: RemoteShortcut shortcut })
+        {
+            await SendShortcutSafelyAsync(shortcut);
+        }
+    }
+
+    private void RemoveCustomShortcutMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: RemoteShortcut shortcut })
+        {
+            return;
+        }
+
+        MessageBoxResult result = MessageBox.Show(
+            this,
+            $"要移除「{shortcut.Name}」（{shortcut.GestureText}）嗎？",
+            "移除自訂按鍵",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        _customShortcuts.Remove(shortcut);
+        PersistShortcuts();
+    }
+
+    private void PersistShortcuts()
+    {
+        try
+        {
+            _shortcutStore.Save(_customShortcuts);
+            RebuildShortcutMenus();
+            SetStatus("自訂按鍵已保存於這個 Windows 使用者的本機設定。");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            SetStatus($"自訂按鍵保存失敗：{exception.Message}");
+        }
+    }
+
+    private void RebuildShortcutMenus()
+    {
+        CustomShortcutEntriesMenu.Items.Clear();
+        RemoveCustomShortcutMenu.Items.Clear();
+        if (_customShortcuts.Count == 0)
+        {
+            CustomShortcutEntriesMenu.Items.Add(new MenuItem
+            {
+                Header = "尚未新增",
+                IsEnabled = false,
+            });
+            RemoveCustomShortcutMenu.Items.Add(new MenuItem
+            {
+                Header = "沒有可移除的項目",
+                IsEnabled = false,
+            });
+            return;
+        }
+
+        foreach (RemoteShortcut shortcut in _customShortcuts)
+        {
+            MenuItem sendItem = new()
+            {
+                Header = $"{shortcut.Name}  ({shortcut.GestureText})",
+                Tag = shortcut,
+                IsEnabled = _controller?.IsConnected == true,
+            };
+            sendItem.Click += CustomShortcutMenuItem_Click;
+            CustomShortcutEntriesMenu.Items.Add(sendItem);
+
+            MenuItem removeItem = new()
+            {
+                Header = $"{shortcut.Name}  ({shortcut.GestureText})",
+                Tag = shortcut,
+            };
+            removeItem.Click += RemoveCustomShortcutMenuItem_Click;
+            RemoveCustomShortcutMenu.Items.Add(removeItem);
+        }
+    }
+
+    private async Task SendShortcutSafelyAsync(RemoteShortcut shortcut)
+    {
+        RemoteController? controller = _controller;
+        if (controller?.IsConnected != true)
+        {
+            SetStatus("請先建立控制 session，再送出快捷鍵。");
+            return;
+        }
+
+        try
+        {
+            await controller.SendShortcutAsync(shortcut);
+            SetStatus($"已送出 {shortcut.GestureText} 到遠端目前作用中的應用程式。");
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException or ArgumentException)
+        {
+            SetStatus($"快捷鍵傳送失敗：{exception.Message}");
         }
     }
 
@@ -507,7 +807,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.Key == Key.F11)
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        if ((key is Key.D0 or Key.NumPad0) &&
+            modifiers.HasFlag(ModifierKeys.Control) &&
+            modifiers.HasFlag(ModifierKeys.Alt))
+        {
+            _ = SendShortcutSafelyAsync(RemoteShortcut.ControlAltZero);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F11)
         {
             ApplyRemoteWindowMode(
                 _remoteWindowMode == RemoteWindowMode.Fullscreen
@@ -524,16 +833,41 @@ public partial class MainWindow : Window
 
     private void RemoteDisplay_MouseMove(object sender, MouseEventArgs e)
     {
-        if (_controller?.IsConnected != true || _mouseMoveThrottle.ElapsedMilliseconds < 20)
+        Point position = e.GetPosition(RemoteDisplay);
+        if (!TryNormalizePosition(position, out float x, out float y))
+        {
+            ControllerCursorLayer.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ShowControllerCursor(position);
+        if (_controller?.IsConnected != true || _mouseMoveThrottle.ElapsedMilliseconds < 12)
         {
             return;
         }
 
         _mouseMoveThrottle.Restart();
-        if (TryNormalizePosition(e.GetPosition(RemoteDisplay), out float x, out float y))
+        SendInput(new RemoteInputEvent(RemoteInputKind.MouseMove, x, y));
+    }
+
+    private void RemoteDisplay_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (_controller?.IsConnected == true)
         {
-            SendInput(new RemoteInputEvent(RemoteInputKind.MouseMove, x, y));
+            ShowControllerCursor(e.GetPosition(RemoteDisplay));
         }
+    }
+
+    private void RemoteDisplay_MouseLeave(object sender, MouseEventArgs e) =>
+        ControllerCursorLayer.Visibility = Visibility.Collapsed;
+
+    private void ShowControllerCursor(Point position)
+    {
+        ControllerCursorLayer.Visibility = Visibility.Visible;
+        Canvas.SetLeft(ControllerCursorHalo, position.X - 15);
+        Canvas.SetTop(ControllerCursorHalo, position.Y - 15);
+        Canvas.SetLeft(ControllerCursorArrow, position.X);
+        Canvas.SetTop(ControllerCursorArrow, position.Y);
     }
 
     private void RemoteDisplay_MouseDown(object sender, MouseButtonEventArgs e)
@@ -629,7 +963,8 @@ public partial class MainWindow : Window
 
     private bool TryNormalizePosition(Point position, out float normalizedX, out float normalizedY)
     {
-        return AspectFitMapper.TryNormalizePoint(
+        return RemoteViewportMapper.TryNormalizePoint(
+            _scaleMode,
             _remoteWidth,
             _remoteHeight,
             RemoteDisplay.ActualWidth,
@@ -684,6 +1019,10 @@ public partial class MainWindow : Window
         WindowedToolButton.IsEnabled = session;
         MaximizedToolButton.IsEnabled = session;
         FullscreenToolButton.IsEnabled = session;
+        ScaleModeComboBox.IsEnabled = session;
+        SasToolButton.IsEnabled = session;
+        CtrlAltZeroToolButton.IsEnabled = session;
+        RebuildShortcutMenus();
         ModeBadge.Text = hosting ? "被控端模式" : controlling ? "控制端模式" : "尚未連線";
     }
 

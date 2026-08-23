@@ -23,8 +23,10 @@ public sealed class WindowsInputInjector : IInputInjector
     private const uint KeyUp = 0x0002;
     private const ushort VirtualKeyLeftControl = 0xA2;
     private const ushort VirtualKeyRightControl = 0xA3;
+    private const ushort VirtualKeyControl = 0x11;
     private const ushort VirtualKeyLeftMenu = 0xA4;
     private const ushort VirtualKeyRightMenu = 0xA5;
+    private const ushort VirtualKeyMenu = 0x12;
     private const ushort VirtualKeyDelete = 0x2E;
     private const ushort VirtualKeyLeftWindows = 0x5B;
     private const ushort VirtualKeyRightWindows = 0x5C;
@@ -94,9 +96,11 @@ public sealed class WindowsInputInjector : IInputInjector
             return;
         }
 
-        bool controlHeld = _pressedKeys.Contains(VirtualKeyLeftControl) ||
+        bool controlHeld = _pressedKeys.Contains(VirtualKeyControl) ||
+                           _pressedKeys.Contains(VirtualKeyLeftControl) ||
                            _pressedKeys.Contains(VirtualKeyRightControl);
-        bool altHeld = _pressedKeys.Contains(VirtualKeyLeftMenu) ||
+        bool altHeld = _pressedKeys.Contains(VirtualKeyMenu) ||
+                       _pressedKeys.Contains(VirtualKeyLeftMenu) ||
                        _pressedKeys.Contains(VirtualKeyRightMenu);
         if (isDown && virtualKey == VirtualKeyDelete && controlHeld && altHeld)
         {
