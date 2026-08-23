@@ -49,6 +49,10 @@ LanRemote 是 Windows 私人區網遠端控制 MVP。兩臺電腦執行同一套
 
 v4 測試包位於 `artifacts/LanRemote-v4-win-x64.zip`（`artifacts/` 不納入 Git）。解壓縮後必須保留整個資料夾，不能只複製 EXE。
 
+- ZIP 大小：136,069,681 bytes
+- ZIP SHA-256：`BAF18E575BB6AE8D88E6B1945D2CD4F9139BFE1A8F0A8DDE9844BE4FFE395B37`
+- 封裝來源 revision：`52904ae5e381e225b046707d58e24390282f1c0d`
+
 1. 把同一份 ZIP 複製到 Windows 11 與 Windows 10，兩邊都完整解壓縮。
 2. 兩邊執行 `LanRemote.App.exe`。
 3. 被控制的電腦按「開始等候」，把畫面顯示的 `IPv4:45873` 告訴另一臺。
@@ -101,5 +105,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Package.
 
 - Git：獨立本機 `main`，無 remote。
 - GitHub：`LOCAL_ONLY/NOT_CONFIGURED`。
-- ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`）：協定與本機實作驗證進行中；正式發布仍停止，等待 v4 Windows 10／11 雙向檔案拖放、視窗、剪貼簿、續傳與原有控制功能實機證據。
+- ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`）：本機原始碼、47 項測試、UI smoke 與 ZIP 完整性已驗證；正式發布仍停止，等待 v4 Windows 10／11 雙向檔案拖放、傳輸視窗、剪貼簿、續傳與原有控制功能實機證據。
 - 原始效能目標：WGC + Media Foundation H.264 與雙機效能證據仍是後續工作，不屬於本輪 GDI/JPEG UX 工作單。

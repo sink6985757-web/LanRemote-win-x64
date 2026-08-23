@@ -49,9 +49,12 @@
 - v4 `dotnet test --configuration Release`：47/47 通過；TLS loopback 實際完成跨 chunk 上傳、同名自動改名、遠端瀏覽、反向下載與內容一致，另回讀 partial 續傳 offset、清理、磁碟根目錄目的地與內容指紋識別碼。
 - v4 Release build 六專案 0 warning／0 error；Computer Use 回讀主視窗，確認底部狀態列消失、Toolbar 簡易摘要固定可見，並實際切換詳細薄列與關閉模式。
 - GUI 雙實例測試在啟動被控端時出現 Windows Firewall 系統提示；依工作單不代替使用者修改安全設定，因此停止該步，配對勾選視窗與連線中檔案 UI 仍待人工雙機證據。
+- v4 self-contained ZIP 依 source revision `52904ae5e381e225b046707d58e24390282f1c0d` 建立；136,069,681 bytes，SHA-256 `BAF18E575BB6AE8D88E6B1945D2CD4F9139BFE1A8F0A8DDE9844BE4FFE395B37`。
+- v4 ZIP 回讀：743 entries、743 unique、0 duplicate；`SHA256.txt` 內 9 個關鍵 EXE／DLL／腳本 hash 全數 PASS，內嵌 README 可回讀協定 v4 與三種 Toolbar 狀態模式。
+- v4 `LanRemote.App.exe` 與 `LanRemote.SasService.exe` Authenticode 均為 `NotSigned`，維持自有電腦測試候選定位。
 
 ### Delivery
 
 - GitHub：`LOCAL_ONLY/NOT_CONFIGURED`
-- ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`）：正式發布預期仍為 `NOT_READY`；v4 ZIP 只供自有兩機測試，等待 Windows 10／11 雙向 GUI、拖放／Toolbar／剪貼簿／續傳、SAS、游標與實際 FPS 證據。
+- ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`）：正式發布為 `NOT_READY`；v4 ZIP 只供自有兩機測試，等待 Windows 10／11 雙向 GUI、拖放／Toolbar／剪貼簿／續傳、SAS、游標與實際 FPS 證據。
 - 原 MVP 的 WGC + Media Foundation H.264 效能目標仍未完成，保留為後續獨立工作項目。
