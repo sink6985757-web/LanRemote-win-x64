@@ -47,7 +47,7 @@ LanRemote 是 Windows 私人區網遠端控制 MVP。兩臺電腦執行同一套
 
 ## 使用本機測試包
 
-測試包位於 `artifacts/LanRemote-win-x64.zip`（`artifacts/` 不納入 Git）。解壓縮後必須保留整個資料夾，不能只複製 EXE。
+v4 測試包位於 `artifacts/LanRemote-v4-win-x64.zip`（`artifacts/` 不納入 Git）。解壓縮後必須保留整個資料夾，不能只複製 EXE。
 
 1. 把同一份 ZIP 複製到 Windows 11 與 Windows 10，兩邊都完整解壓縮。
 2. 兩邊執行 `LanRemote.App.exe`。
