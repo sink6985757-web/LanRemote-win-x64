@@ -54,9 +54,13 @@
 - v4 self-contained ZIP 依 source revision `52904ae5e381e225b046707d58e24390282f1c0d` 建立；136,069,681 bytes，SHA-256 `BAF18E575BB6AE8D88E6B1945D2CD4F9139BFE1A8F0A8DDE9844BE4FFE395B37`。
 - v4 ZIP 回讀：743 entries、743 unique、0 duplicate；`SHA256.txt` 內 9 個關鍵 EXE／DLL／腳本 hash 全數 PASS，內嵌 README 可回讀協定 v4 與三種 Toolbar 狀態模式。
 - v4 `LanRemote.App.exe` 與 `LanRemote.SasService.exe` Authenticode 均為 `NotSigned`，維持自有電腦測試候選定位。
+- v4.1 `dotnet test --configuration Release`：50/50 通過；新增 `Ctrl+C／X／V` 原子序列與 TLS loopback `Ctrl+V` 到達被控端輸入層的回歸證據。
+- v4.1 GUI smoke：Toolbar 可直接看見 `C/X/V 直通` 與 `⇄ 檔案`，開關在 XAML 預設為開啟；未啟動 host、未操作 Windows Firewall 安全提示。
+- v4.1 self-contained ZIP 依 source revision `5a2ce98e420bedb0df060e86afabb2a101f5afd0` 建立；136,070,962 bytes，SHA-256 `B55C41650F77749A820381B6AAA61CC6E6EBC1338B7E2CFAAFBAD793A36F3247`。
+- v4.1 ZIP 回讀：743 entries、743 unique、0 duplicate；9/9 manifest hash PASS，內嵌 README 可回讀 v4.1 與預設開啟的快捷鍵開關；EXE／服務均 `NotSigned`。
 
 ### Delivery
 
 - GitHub：`LOCAL_ONLY/NOT_CONFIGURED`
-- ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`）：正式發布為 `NOT_READY`；v4 ZIP 只供自有兩機測試，等待 Windows 10／11 雙向 GUI、拖放／Toolbar／剪貼簿／續傳、SAS、游標與實際 FPS 證據。
+- ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`，Cycle 3）：正式發布為 `NOT_READY`；v4.1 ZIP 只供自有兩機測試。既有檔案傳輸由 Yulin 回報正常，新版快捷鍵直通與完整雙向回歸仍待 schema v3 證據。
 - 原 MVP 的 WGC + Media Foundation H.264 效能目標仍未完成，保留為後續獨立工作項目。
