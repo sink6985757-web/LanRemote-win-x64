@@ -14,6 +14,13 @@ elseif (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
     $OutputDirectory = Join-Path $projectRoot $OutputDirectory
 }
 
+$artifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "artifacts"))
+$artifactsPrefix = $artifactsRoot.TrimEnd('\') + [System.IO.Path]::DirectorySeparatorChar
+$OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
+if (-not $OutputDirectory.StartsWith($artifactsPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Package output must stay inside the project's artifacts directory."
+}
+
 $stagingRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("LanRemotePublish-" + [guid]::NewGuid().ToString("N"))
 $archiveStaging = Join-Path ([System.IO.Path]::GetTempPath()) ("LanRemoteArchive-" + [guid]::NewGuid().ToString("N") + ".zip")
 $stagingRoot = [System.IO.Path]::GetFullPath($stagingRoot)
@@ -54,6 +61,18 @@ try {
         -p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) {
         throw "SAS service self-contained win-x64 publish failed."
+    }
+
+    if (Test-Path -LiteralPath $OutputDirectory) {
+        $outputItem = Get-Item -LiteralPath $OutputDirectory -Force
+        if (-not $outputItem.PSIsContainer -or
+            $outputItem.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint) -or
+            (Get-ChildItem -LiteralPath $OutputDirectory -Recurse -Force -Attributes ReparsePoint |
+                Select-Object -First 1)) {
+            throw "Refusing to replace a package output that is not a plain directory tree."
+        }
+
+        Remove-Item -LiteralPath $OutputDirectory -Recurse -Force
     }
 
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
