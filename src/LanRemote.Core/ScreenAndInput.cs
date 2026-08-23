@@ -25,6 +25,37 @@ public interface ISecureAttentionProvider
         CancellationToken cancellationToken);
 }
 
+public interface IRemoteDropTargetResolver
+{
+    ValueTask<string?> ResolveAsync(float normalizedX, float normalizedY, CancellationToken cancellationToken);
+}
+
+public interface IClipboardFileProvider
+{
+    ValueTask<IReadOnlyList<string>> GetFilesAsync(CancellationToken cancellationToken);
+}
+
+public sealed class UnavailableRemoteDropTargetResolver : IRemoteDropTargetResolver
+{
+    public ValueTask<string?> ResolveAsync(
+        float normalizedX,
+        float normalizedY,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult<string?>(null);
+    }
+}
+
+public sealed class EmptyClipboardFileProvider : IClipboardFileProvider
+{
+    public ValueTask<IReadOnlyList<string>> GetFilesAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult<IReadOnlyList<string>>([]);
+    }
+}
+
 public sealed class UnavailableSecureAttentionProvider : ISecureAttentionProvider
 {
     public ValueTask<SecureAttentionResult> RequestAsync(

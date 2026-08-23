@@ -7,3 +7,5 @@ public sealed record PairingRequest(
     string DeviceName,
     string OperatingSystem,
     string PairingCode);
+
+public sealed record PairingApproval(bool Accepted, bool FileTransferAllowed);

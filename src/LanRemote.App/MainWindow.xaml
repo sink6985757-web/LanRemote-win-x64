@@ -48,6 +48,11 @@
                 <StackPanel>
                     <Menu x:Name="MainMenu" Background="#E8EDF3" Foreground="#182234">
                         <MenuItem Header="_File">
+                            <MenuItem x:Name="FileTransferMenuItem" Header="檔案傳輸(_T)…"
+                                      Click="FileTransferMenuItem_Click" IsEnabled="False" />
+                            <MenuItem x:Name="ReceiveClipboardMenuItem" Header="接收遠端剪貼簿檔案(_R)…"
+                                      Click="ReceiveRemoteClipboardMenuItem_Click" IsEnabled="False" />
+                            <Separator />
                             <MenuItem Header="結束(_X)" InputGestureText="Alt+F4" Click="ExitMenuItem_Click" />
                         </MenuItem>
                         <MenuItem Header="_Connection">
@@ -75,6 +80,14 @@
                             </MenuItem>
                             <MenuItem x:Name="ShowChromeMenuItem" Header="顯示工具列(_T)" IsCheckable="True"
                                       IsChecked="True" Click="ShowChromeMenuItem_Click" />
+                            <MenuItem Header="狀態資訊(_I)">
+                                <MenuItem x:Name="StatusOffMenuItem" Header="關閉" IsCheckable="True"
+                                          Click="StatusOffMenuItem_Click" />
+                                <MenuItem x:Name="StatusSimpleMenuItem" Header="簡易（預設）" IsCheckable="True"
+                                          IsChecked="True" Click="StatusSimpleMenuItem_Click" />
+                                <MenuItem x:Name="StatusDetailedMenuItem" Header="詳細" IsCheckable="True"
+                                          Click="StatusDetailedMenuItem_Click" />
+                            </MenuItem>
                         </MenuItem>
                         <MenuItem Header="_Quality">
                             <MenuItem x:Name="SmoothQualityMenuItem" Header="流暢 — 720p / 60 fps"
@@ -115,6 +128,12 @@
                                     Content="Ctrl+Alt+Delete" Click="SasToolButton_Click" />
                             <Button x:Name="CtrlAltZeroToolButton" Style="{StaticResource ToolButtonStyle}"
                                     Content="Ctrl+Alt+0" Click="CtrlAltZeroToolButton_Click" />
+                            <Separator />
+                            <Button x:Name="FileTransferToolButton" Style="{StaticResource ToolButtonStyle}"
+                                    Content="⇄ 檔案傳輸" Click="FileTransferMenuItem_Click" IsEnabled="False" />
+                            <Button x:Name="ReceiveClipboardToolButton" Style="{StaticResource ToolButtonStyle}"
+                                    Content="⇩ 遠端剪貼簿" Click="ReceiveRemoteClipboardMenuItem_Click"
+                                    IsEnabled="False" />
                             <Menu Background="Transparent" Foreground="#162033" VerticalAlignment="Center">
                                 <MenuItem x:Name="ShortcutToolMenu" Header="⌨ 自訂按鍵">
                                     <MenuItem x:Name="CustomShortcutEntriesMenu" Header="送出自訂按鍵" />
@@ -124,8 +143,19 @@
                                 </MenuItem>
                             </Menu>
                             <Separator />
-                            <TextBlock x:Name="SessionInfoText" Text="尚未連線" Margin="8,0"
-                                       Foreground="#46566D" VerticalAlignment="Center" />
+                            <StackPanel x:Name="ToolbarStatusPanel" Orientation="Horizontal"
+                                        VerticalAlignment="Center" Margin="7,0"
+                                        ToolBar.OverflowMode="Never">
+                                <TextBlock x:Name="StatusConnectionText" Text="● 尚未連線"
+                                           Foreground="#64748B" VerticalAlignment="Center" />
+                                <TextBlock x:Name="StatusFpsText" Text="｜0.0 FPS"
+                                           Foreground="#334155" VerticalAlignment="Center" />
+                                <TextBlock x:Name="StatusTransferText" Text="" Visibility="Collapsed"
+                                           Foreground="#0F766E" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button x:Name="CancelActiveTransferToolButton" Style="{StaticResource ToolButtonStyle}"
+                                    Content="取消傳輸" Background="#991B1B" Visibility="Collapsed"
+                                    ToolBar.OverflowMode="Never" Click="CancelActiveTransferToolButton_Click" />
                             <Separator />
                             <Button x:Name="ToolbarDisconnectButton" Style="{StaticResource ToolButtonStyle}"
                                     Background="#991B1B" Content="■ 立即斷線" Click="DisconnectButton_Click" />
@@ -133,18 +163,18 @@
                                     Click="HideChromeButton_Click" />
                         </ToolBar>
                     </ToolBarTray>
+                    <Border x:Name="DetailedStatusPanel" Visibility="Collapsed" Background="#C8D3E0"
+                            BorderBrush="#AAB7C7" BorderThickness="0,1,0,0" Padding="12,4">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="SessionInfoText" Text="尚未連線"
+                                       Foreground="#34445B" VerticalAlignment="Center" />
+                            <TextBlock x:Name="MetricsText" Text=""
+                                       Foreground="#46566D" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Border>
-
-            <StatusBar DockPanel.Dock="Bottom" Background="#111C30" Foreground="#C9D6E8" Padding="8,3">
-                <StatusBarItem>
-                    <TextBlock x:Name="StatusText" Text="請選擇這臺電腦本次要扮演的角色。" />
-                </StatusBarItem>
-                <Separator />
-                <StatusBarItem HorizontalAlignment="Right">
-                    <TextBlock x:Name="MetricsText" Text="尚無畫面資料" Foreground="#91A4BF" />
-                </StatusBarItem>
-            </StatusBar>
 
             <Grid>
                 <Grid x:Name="LauncherView" Background="#0B1220" Margin="22">
@@ -222,23 +252,38 @@
                                Foreground="#60728E" HorizontalAlignment="Center" VerticalAlignment="Center"
                                FontSize="17" />
                     <Image x:Name="RemoteDisplay" Stretch="Fill" Focusable="True" Visibility="Collapsed"
-                           Cursor="None" MouseEnter="RemoteDisplay_MouseEnter" MouseLeave="RemoteDisplay_MouseLeave"
+                           Cursor="None" AllowDrop="True"
+                           DragEnter="RemoteDisplay_DragEnter" DragOver="RemoteDisplay_DragOver"
+                           DragLeave="RemoteDisplay_DragLeave" Drop="RemoteDisplay_Drop"
+                           MouseEnter="RemoteDisplay_MouseEnter" MouseLeave="RemoteDisplay_MouseLeave"
                            MouseMove="RemoteDisplay_MouseMove"
                            MouseDown="RemoteDisplay_MouseDown" MouseUp="RemoteDisplay_MouseUp"
                            MouseWheel="RemoteDisplay_MouseWheel"
                            PreviewKeyDown="RemoteDisplay_PreviewKeyDown"
                            PreviewKeyUp="RemoteDisplay_PreviewKeyUp" />
                     <Canvas x:Name="ControllerCursorLayer" IsHitTestVisible="False" Visibility="Collapsed">
-                        <Ellipse x:Name="ControllerCursorHalo" Width="30" Height="30"
-                                 Fill="#334FD1C5" Stroke="#884FD1C5" StrokeThickness="1" />
                         <Path x:Name="ControllerCursorArrow"
-                              Data="M 0,0 L 0,22 L 5.5,16.5 L 10,25 L 14,23 L 9.5,14.5 L 18,14.5 Z"
-                              Fill="#4FD1C5" Stroke="White" StrokeThickness="1.5"
+                              Data="M 0,0 L 0,17.6 L 4.4,13.2 L 8,20 L 11.2,18.4 L 7.6,11.6 L 14.4,11.6 Z"
+                              Fill="#4FD1C5" Stroke="White" StrokeThickness="1.3"
                               StrokeLineJoin="Round" />
                     </Canvas>
+                    <Border x:Name="DropTargetOverlay" Visibility="Collapsed" IsHitTestVisible="False"
+                            VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="22"
+                            Background="#E6111C30" BorderBrush="#4FD1C5" BorderThickness="1"
+                            CornerRadius="8" Padding="16,10">
+                        <TextBlock x:Name="DropTargetText" Text="正在解析遠端目的地…"
+                                   Foreground="White" FontWeight="SemiBold" />
+                    </Border>
                 </Grid>
             </Grid>
         </DockPanel>
+
+        <Border x:Name="TransientStatusBorder" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                Margin="20" Padding="15,9" CornerRadius="8" Background="#E6111C30"
+                BorderBrush="#405879" BorderThickness="1" Visibility="Collapsed" Panel.ZIndex="90">
+            <TextBlock x:Name="StatusText" Text="請選擇這臺電腦本次要扮演的角色。"
+                       Foreground="#E5EDF8" MaxWidth="850" TextWrapping="Wrap" />
+        </Border>
 
         <Border x:Name="TopRevealStrip" Height="7" VerticalAlignment="Top" Panel.ZIndex="100"
                 Background="#4FD1C5" Opacity="0.55" Visibility="Collapsed"

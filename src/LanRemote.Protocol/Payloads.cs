@@ -13,7 +13,10 @@ public sealed record ServerHello(
     string OperatingSystem,
     string NonceBase64);
 
-public sealed record SessionDecision(bool Accepted, string? Reason);
+public sealed record SessionDecision(
+    bool Accepted,
+    string? Reason,
+    bool FileTransferAllowed = false);
 
 public sealed record SessionReady(
     Guid SessionId,

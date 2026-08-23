@@ -9,8 +9,8 @@ public sealed class ProtocolTests
     [Fact]
     public async Task FramedStream_RoundTripsPacket()
     {
-        Assert.Equal(3, ProtocolConstants.Version);
-        Assert.True(ProtocolConstants.Magic.SequenceEqual("LRM3"u8));
+        Assert.Equal(4, ProtocolConstants.Version);
+        Assert.True(ProtocolConstants.Magic.SequenceEqual("LRM4"u8));
         using MemoryStream transport = new();
         await using FramedMessageStream messages = new(transport);
         byte[] expected = [1, 3, 5, 7, 9];
@@ -236,5 +236,29 @@ public sealed class ProtocolTests
         Assert.Equal(2, buffer.DroppedCount);
         Assert.Equal("frame-3", buffer.Take());
         Assert.False(buffer.HasValue);
+    }
+
+    [Fact]
+    public void FileChunk_RoundTripsBinaryPayload()
+    {
+        FileChunkPayload expected = new(Guid.NewGuid(), 7, 123_456, [1, 2, 3, 4, 5]);
+
+        FileChunkPayload actual = FileChunkPayload.Deserialize(expected.Serialize());
+
+        Assert.Equal(expected.TransferId, actual.TransferId);
+        Assert.Equal(expected.EntryIndex, actual.EntryIndex);
+        Assert.Equal(expected.Offset, actual.Offset);
+        Assert.Equal(expected.Data, actual.Data);
+    }
+
+    [Theory]
+    [InlineData("../escape.txt")]
+    [InlineData("folder/../../escape.txt")]
+    [InlineData("C:/absolute.txt")]
+    [InlineData("file.txt:secret")]
+    [InlineData("folder/trailing. ")]
+    public void FileTransferPolicy_RejectsUnsafeRelativePaths(string path)
+    {
+        Assert.Throws<InvalidDataException>(() => FileTransferPolicy.NormalizeRelativePath(path));
     }
 }

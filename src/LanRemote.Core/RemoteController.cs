@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -12,11 +13,24 @@ public sealed class RemoteController : IAsyncDisposable
 {
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SemaphoreSlim _inputSequenceGate = new(1, 1);
+    private readonly FileTransferReceiver _downloadReceiver;
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<DirectoryBrowseResponse>> _browseRequests = [];
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<DropTargetResponse>> _dropTargetRequests = [];
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<ClipboardFilesResponse>> _clipboardRequests = [];
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<FileTransferDecision>> _uploadDecisions = [];
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<FileTransferResult>> _uploadResults = [];
+    private readonly ConcurrentDictionary<Guid, PendingDownload> _downloadRequests = [];
+    private readonly ConcurrentDictionary<Guid, PendingDownload> _downloadsByTransfer = [];
     private TcpClient? _client;
     private FramedMessageStream? _messages;
     private Task? _reader;
     private bool _ready;
     private QualityProfile _currentQualityProfile = QualityProfiles.Balanced;
+
+    public RemoteController(FileTransferReceiver? downloadReceiver = null)
+    {
+        _downloadReceiver = downloadReceiver ?? new FileTransferReceiver();
+    }
 
     public event Action<string>? StatusChanged;
 
@@ -32,9 +46,15 @@ public sealed class RemoteController : IAsyncDisposable
 
     public event Action<SecureAttentionResult>? SecureAttentionResultReceived;
 
+    public event Action<FileTransferProgress>? FileTransferProgressChanged;
+
+    public event Action<FileTransferResult>? FileTransferCompleted;
+
     public bool IsConnected => _ready && _client?.Connected == true;
 
     public QualityProfile CurrentQualityProfile => _currentQualityProfile;
+
+    public bool FileTransferAllowed { get; private set; }
 
     public Task ConnectAsync(IPEndPoint endpoint, CancellationToken cancellationToken = default) =>
         ConnectAsync(endpoint, QualityPreset.Balanced, cancellationToken);
@@ -138,6 +158,8 @@ public sealed class RemoteController : IAsyncDisposable
             {
                 throw new UnauthorizedAccessException(decision.Reason ?? "被控端拒絕控制要求。");
             }
+
+            FileTransferAllowed = decision.FileTransferAllowed;
 
             ProtocolPacket readyPacket = await _messages.ReadAsync(linked.Token).ConfigureAwait(false);
             if (readyPacket.Type != MessageType.SessionReady)
@@ -267,6 +289,229 @@ public sealed class RemoteController : IAsyncDisposable
         return requestId;
     }
 
+    public async Task<DirectoryBrowseResponse> BrowseRemoteAsync(
+        string? path,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureFileTransferAvailable();
+        Guid requestId = Guid.NewGuid();
+        TaskCompletionSource<DirectoryBrowseResponse> completion = NewCompletion<DirectoryBrowseResponse>();
+        if (!_browseRequests.TryAdd(requestId, completion))
+        {
+            throw new InvalidOperationException("無法建立遠端目錄瀏覽要求。");
+        }
+
+        try
+        {
+            await _messages!.WriteAsync(
+                MessageType.DirectoryBrowseRequest,
+                PayloadJson.Serialize(new DirectoryBrowseRequest(requestId, path)),
+                cancellationToken).ConfigureAwait(false);
+            return await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _browseRequests.TryRemove(requestId, out _);
+        }
+    }
+
+    public async Task<DropTargetResponse> ResolveDropTargetAsync(
+        float normalizedX,
+        float normalizedY,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureFileTransferAvailable();
+        Guid requestId = Guid.NewGuid();
+        TaskCompletionSource<DropTargetResponse> completion = NewCompletion<DropTargetResponse>();
+        if (!_dropTargetRequests.TryAdd(requestId, completion))
+        {
+            throw new InvalidOperationException("無法建立拖放目的地要求。");
+        }
+
+        try
+        {
+            await _messages!.WriteAsync(
+                MessageType.DropTargetRequest,
+                PayloadJson.Serialize(new DropTargetRequest(requestId, normalizedX, normalizedY)),
+                cancellationToken).ConfigureAwait(false);
+            return await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _dropTargetRequests.TryRemove(requestId, out _);
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> GetRemoteClipboardFilesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        EnsureFileTransferAvailable();
+        Guid requestId = Guid.NewGuid();
+        TaskCompletionSource<ClipboardFilesResponse> completion = NewCompletion<ClipboardFilesResponse>();
+        if (!_clipboardRequests.TryAdd(requestId, completion))
+        {
+            throw new InvalidOperationException("無法建立遠端剪貼簿要求。");
+        }
+
+        try
+        {
+            await _messages!.WriteAsync(
+                MessageType.ClipboardFilesRequest,
+                PayloadJson.Serialize(new ClipboardFilesRequest(requestId)),
+                cancellationToken).ConfigureAwait(false);
+            ClipboardFilesResponse response =
+                await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(response.Error))
+            {
+                throw new InvalidOperationException(response.Error);
+            }
+
+            return response.Paths;
+        }
+        finally
+        {
+            _clipboardRequests.TryRemove(requestId, out _);
+        }
+    }
+
+    public async Task<FileTransferResult> UploadAsync(
+        IReadOnlyList<string> sourcePaths,
+        string remoteDestination,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureFileTransferAvailable();
+        Guid transferSeed = FileTransferIdentity.CreateSeed("upload", remoteDestination, sourcePaths);
+        PreparedFileTransfer transfer = await FileTransferManifestBuilder.CreateAsync(
+            sourcePaths,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        transfer = transfer with
+        {
+            TransferId = FileTransferIdentity.WithManifest(transferSeed, transfer.ManifestSha256),
+        };
+        TaskCompletionSource<FileTransferDecision> decisionCompletion = NewCompletion<FileTransferDecision>();
+        TaskCompletionSource<FileTransferResult> resultCompletion = NewCompletion<FileTransferResult>();
+        if (!_uploadDecisions.TryAdd(transfer.TransferId, decisionCompletion) ||
+            !_uploadResults.TryAdd(transfer.TransferId, resultCompletion))
+        {
+            _uploadDecisions.TryRemove(transfer.TransferId, out _);
+            _uploadResults.TryRemove(transfer.TransferId, out _);
+            throw new InvalidOperationException("相同的檔案傳輸已在進行中。");
+        }
+
+        bool completed = false;
+        try
+        {
+            FileUploadOffer offer = new(
+                transfer.TransferId,
+                remoteDestination,
+                transfer.Entries,
+                transfer.TotalBytes,
+                transfer.ManifestSha256);
+            await _messages!.WriteAsync(
+                MessageType.FileUploadOffer,
+                PayloadJson.Serialize(offer),
+                cancellationToken).ConfigureAwait(false);
+            FileTransferDecision decision =
+                await decisionCompletion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (!decision.Accepted)
+            {
+                return new FileTransferResult(
+                    transfer.TransferId,
+                    false,
+                    decision.Reason ?? "被控端拒絕檔案傳輸。",
+                    []);
+            }
+
+            await FileTransferSender.SendAsync(
+                transfer,
+                decision.ResumePoints,
+                _messages,
+                MessageType.FileUploadChunk,
+                FileTransferDirection.Upload,
+                progress => FileTransferProgressChanged?.Invoke(progress),
+                cancellationToken).ConfigureAwait(false);
+            await _messages.WriteAsync(
+                MessageType.FileUploadComplete,
+                PayloadJson.Serialize(new FileTransferComplete(transfer.TransferId)),
+                cancellationToken).ConfigureAwait(false);
+            FileTransferResult result =
+                await resultCompletion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            completed = result.Succeeded;
+            return result;
+        }
+        finally
+        {
+            _uploadDecisions.TryRemove(transfer.TransferId, out _);
+            _uploadResults.TryRemove(transfer.TransferId, out _);
+            if (!completed && cancellationToken.IsCancellationRequested && _messages is not null)
+            {
+                await TrySendCancelAsync(
+                    transfer.TransferId,
+                    FileTransferDirection.Upload,
+                    deletePartialFiles: false).ConfigureAwait(false);
+            }
+        }
+    }
+
+    public async Task<FileTransferResult> DownloadAsync(
+        IReadOnlyList<string> remoteSourcePaths,
+        string localDestination,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureFileTransferAvailable();
+        _ = FileTransferPolicy.ValidateExistingDirectory(localDestination);
+        Guid requestId = Guid.NewGuid();
+        Guid transferId = FileTransferIdentity.CreateSeed("download", localDestination, remoteSourcePaths);
+        PendingDownload pending = new(localDestination);
+        if (!_downloadRequests.TryAdd(requestId, pending))
+        {
+            throw new InvalidOperationException("無法建立下載要求。");
+        }
+
+        try
+        {
+            await _messages!.WriteAsync(
+                MessageType.FileDownloadRequest,
+                PayloadJson.Serialize(new FileDownloadRequest(requestId, transferId, remoteSourcePaths)),
+                cancellationToken).ConfigureAwait(false);
+            return await pending.Completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _downloadRequests.TryRemove(requestId, out _);
+            if (pending.TransferId is Guid activeId)
+            {
+                _downloadsByTransfer.TryRemove(activeId, out _);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    await TrySendCancelAsync(
+                        activeId,
+                        FileTransferDirection.Download,
+                        deletePartialFiles: false).ConfigureAwait(false);
+                }
+            }
+        }
+    }
+
+    public async Task CancelTransferAsync(
+        Guid transferId,
+        FileTransferDirection direction,
+        bool deletePartialFiles,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureFileTransferAvailable();
+        if (direction == FileTransferDirection.Download)
+        {
+            await _downloadReceiver.CancelAsync(transferId, deletePartialFiles, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await _messages!.WriteAsync(
+            MessageType.FileTransferCancel,
+            PayloadJson.Serialize(new FileTransferCancel(transferId, direction, deletePartialFiles)),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task ReadServerMessagesAsync(CancellationToken cancellationToken)
     {
         try
@@ -301,6 +546,69 @@ public sealed class RemoteController : IAsyncDisposable
                             ? "被控端已接受 Ctrl+Alt+Delete 要求。"
                             : result.Message);
                         break;
+                    case MessageType.DirectoryBrowseResponse:
+                        DirectoryBrowseResponse browse =
+                            PayloadJson.Deserialize<DirectoryBrowseResponse>(packet.Payload);
+                        if (_browseRequests.TryGetValue(browse.RequestId, out TaskCompletionSource<DirectoryBrowseResponse>? browseCompletion))
+                        {
+                            browseCompletion.TrySetResult(browse);
+                        }
+
+                        break;
+                    case MessageType.DropTargetResponse:
+                        DropTargetResponse drop = PayloadJson.Deserialize<DropTargetResponse>(packet.Payload);
+                        if (_dropTargetRequests.TryGetValue(drop.RequestId, out TaskCompletionSource<DropTargetResponse>? dropCompletion))
+                        {
+                            dropCompletion.TrySetResult(drop);
+                        }
+
+                        break;
+                    case MessageType.ClipboardFilesResponse:
+                        ClipboardFilesResponse clipboard =
+                            PayloadJson.Deserialize<ClipboardFilesResponse>(packet.Payload);
+                        if (_clipboardRequests.TryGetValue(clipboard.RequestId, out TaskCompletionSource<ClipboardFilesResponse>? clipboardCompletion))
+                        {
+                            clipboardCompletion.TrySetResult(clipboard);
+                        }
+
+                        break;
+                    case MessageType.FileUploadDecision:
+                        FileTransferDecision uploadDecision =
+                            PayloadJson.Deserialize<FileTransferDecision>(packet.Payload);
+                        if (_uploadDecisions.TryGetValue(uploadDecision.TransferId, out TaskCompletionSource<FileTransferDecision>? uploadDecisionCompletion))
+                        {
+                            uploadDecisionCompletion.TrySetResult(uploadDecision);
+                        }
+
+                        break;
+                    case MessageType.FileUploadResult:
+                        FileTransferResult uploadResult =
+                            PayloadJson.Deserialize<FileTransferResult>(packet.Payload);
+                        FileTransferCompleted?.Invoke(uploadResult);
+                        if (_uploadResults.TryGetValue(uploadResult.TransferId, out TaskCompletionSource<FileTransferResult>? uploadResultCompletion))
+                        {
+                            uploadResultCompletion.TrySetResult(uploadResult);
+                        }
+
+                        break;
+                    case MessageType.FileDownloadOffer:
+                        await HandleDownloadOfferAsync(
+                            PayloadJson.Deserialize<FileDownloadOffer>(packet.Payload),
+                            cancellationToken).ConfigureAwait(false);
+                        break;
+                    case MessageType.FileDownloadChunk:
+                        FileChunkPayload downloadChunk = FileChunkPayload.Deserialize(packet.Payload);
+                        FileTransferProgress downloadProgress = await _downloadReceiver.ReceiveChunkAsync(
+                            downloadChunk,
+                            FileTransferDirection.Download,
+                            cancellationToken).ConfigureAwait(false);
+                        FileTransferProgressChanged?.Invoke(downloadProgress);
+                        break;
+                    case MessageType.FileDownloadComplete:
+                        FileTransferComplete downloadComplete =
+                            PayloadJson.Deserialize<FileTransferComplete>(packet.Payload);
+                        _ = CompleteDownloadSafelyAsync(downloadComplete, cancellationToken);
+                        break;
                     case MessageType.Ping:
                         await _messages.WriteAsync(MessageType.Pong, packet.Payload, cancellationToken)
                             .ConfigureAwait(false);
@@ -327,6 +635,154 @@ public sealed class RemoteController : IAsyncDisposable
         finally
         {
             _ready = false;
+            FileTransferAllowed = false;
+            CancelPendingRequests();
+            await _downloadReceiver.SuspendAllAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    private async Task HandleDownloadOfferAsync(
+        FileDownloadOffer offer,
+        CancellationToken cancellationToken)
+    {
+        if (!_downloadRequests.TryGetValue(offer.RequestId, out PendingDownload? pending))
+        {
+            await _messages!.WriteAsync(
+                MessageType.FileDownloadDecision,
+                PayloadJson.Serialize(new FileTransferDecision(
+                    offer.TransferId,
+                    false,
+                    "下載要求已取消或不存在。",
+                    [])),
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(offer.Error))
+        {
+            pending.Completion.TrySetResult(new FileTransferResult(
+                offer.TransferId,
+                false,
+                offer.Error,
+                []));
+            return;
+        }
+
+        pending.TransferId = offer.TransferId;
+        _downloadsByTransfer[offer.TransferId] = pending;
+        FileTransferDecision decision = await _downloadReceiver.AcceptDownloadAsync(
+            offer,
+            pending.DestinationPath,
+            cancellationToken).ConfigureAwait(false);
+        await _messages!.WriteAsync(
+            MessageType.FileDownloadDecision,
+            PayloadJson.Serialize(decision),
+            cancellationToken).ConfigureAwait(false);
+        if (!decision.Accepted)
+        {
+            pending.Completion.TrySetResult(new FileTransferResult(
+                offer.TransferId,
+                false,
+                decision.Reason ?? "本機拒絕下載。",
+                []));
+        }
+    }
+
+    private async Task CompleteDownloadSafelyAsync(
+        FileTransferComplete complete,
+        CancellationToken cancellationToken)
+    {
+        FileTransferResult result;
+        try
+        {
+            result = await _downloadReceiver.CompleteAsync(complete.TransferId, cancellationToken)
+                .ConfigureAwait(false);
+            if (_messages is not null)
+            {
+                await _messages.WriteAsync(
+                    MessageType.FileDownloadResult,
+                    PayloadJson.Serialize(result),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or OperationCanceledException or ObjectDisposedException)
+        {
+            result = new FileTransferResult(complete.TransferId, false, exception.Message, []);
+        }
+
+        FileTransferCompleted?.Invoke(result);
+        if (_downloadsByTransfer.TryRemove(complete.TransferId, out PendingDownload? pendingDownload))
+        {
+            pendingDownload.Completion.TrySetResult(result);
+        }
+    }
+
+    private async Task TrySendCancelAsync(
+        Guid transferId,
+        FileTransferDirection direction,
+        bool deletePartialFiles)
+    {
+        try
+        {
+            if (_messages is not null && _ready)
+            {
+                await _messages.WriteAsync(
+                    MessageType.FileTransferCancel,
+                    PayloadJson.Serialize(new FileTransferCancel(
+                        transferId,
+                        direction,
+                        deletePartialFiles))).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+        {
+        }
+    }
+
+    private void EnsureFileTransferAvailable()
+    {
+        if (!_ready || _messages is null)
+        {
+            throw new InvalidOperationException("請先建立控制 session。");
+        }
+
+        if (!FileTransferAllowed)
+        {
+            throw new UnauthorizedAccessException("被控端未允許本次 session 的檔案傳輸。");
+        }
+    }
+
+    private void CancelPendingRequests()
+    {
+        Exception exception = new IOException("控制 session 已中斷。");
+        foreach (TaskCompletionSource<DirectoryBrowseResponse> pending in _browseRequests.Values)
+        {
+            pending.TrySetException(exception);
+        }
+
+        foreach (TaskCompletionSource<DropTargetResponse> pending in _dropTargetRequests.Values)
+        {
+            pending.TrySetException(exception);
+        }
+
+        foreach (TaskCompletionSource<ClipboardFilesResponse> pending in _clipboardRequests.Values)
+        {
+            pending.TrySetException(exception);
+        }
+
+        foreach (TaskCompletionSource<FileTransferDecision> pending in _uploadDecisions.Values)
+        {
+            pending.TrySetException(exception);
+        }
+
+        foreach (TaskCompletionSource<FileTransferResult> pending in _uploadResults.Values)
+        {
+            pending.TrySetException(exception);
+        }
+
+        foreach (PendingDownload pending in _downloadRequests.Values)
+        {
+            pending.Completion.TrySetException(exception);
         }
     }
 
@@ -345,6 +801,7 @@ public sealed class RemoteController : IAsyncDisposable
         }
 
         _ready = false;
+        FileTransferAllowed = false;
         _lifetime.Cancel();
         if (_reader is not null)
         {
@@ -390,10 +847,23 @@ public sealed class RemoteController : IAsyncDisposable
 
     private void OnStatus(string message) => StatusChanged?.Invoke(message);
 
+    private static TaskCompletionSource<T> NewCompletion<T>() =>
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public async ValueTask DisposeAsync()
     {
         await DisconnectAsync().ConfigureAwait(false);
         _inputSequenceGate.Dispose();
         _lifetime.Dispose();
+    }
+
+    private sealed class PendingDownload(string destinationPath)
+    {
+        public string DestinationPath { get; } = destinationPath;
+
+        public Guid? TransferId { get; set; }
+
+        public TaskCompletionSource<FileTransferResult> Completion { get; } =
+            NewCompletion<FileTransferResult>();
     }
 }

@@ -32,6 +32,27 @@ param(
     [Parameter(Mandatory)]
     [bool]$ImmediateDisconnectPassed,
 
+    [Parameter(Mandatory)]
+    [bool]$DragDropUploadPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ToolbarUploadPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ToolbarDownloadPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$FileClipboardPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ResumePassed,
+
+    [Parameter(Mandatory)]
+    [bool]$StatusModesPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$CursorPassed,
+
     [string]$Notes = "",
     [string]$PackageDirectory = "",
     [string]$OutputDirectory = ""
@@ -73,7 +94,7 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $outputFile = Join-Path $OutputDirectory ("{0}-{1}-{2}.json" -f $timestamp, $safeComputerName, $Direction)
 
 $evidence = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     recordedAt = (Get-Date).ToString("o")
     computerName = $env:COMPUTERNAME
     peerComputer = $PeerComputer
@@ -98,6 +119,13 @@ $evidence = [ordered]@{
         mousePassed = $MousePassed
         keyboardPassed = $KeyboardPassed
         immediateDisconnectPassed = $ImmediateDisconnectPassed
+        dragDropUploadPassed = $DragDropUploadPassed
+        toolbarUploadPassed = $ToolbarUploadPassed
+        toolbarDownloadPassed = $ToolbarDownloadPassed
+        fileClipboardPassed = $FileClipboardPassed
+        resumePassed = $ResumePassed
+        statusModesPassed = $StatusModesPassed
+        cursorPassed = $CursorPassed
         notes = $Notes
     }
 }

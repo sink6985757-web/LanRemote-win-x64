@@ -7,9 +7,11 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using LanRemote.Core;
 using LanRemote.Protocol;
 using LanRemote.Windows;
+using Microsoft.Win32;
 
 namespace LanRemote.App;
 
@@ -23,8 +25,17 @@ public partial class MainWindow : Window
         "shortcuts.json"));
     private readonly List<RemoteShortcut> _customShortcuts = [];
     private readonly LatestValueBuffer<VideoFramePayload> _frameBuffer = new();
+    private readonly DispatcherTimer _statusToastTimer = new()
+    {
+        Interval = TimeSpan.FromSeconds(4),
+    };
     private RemoteHost? _host;
     private RemoteController? _controller;
+    private FileTransferWindow? _fileTransferWindow;
+    private CancellationTokenSource? _directTransferCancellation;
+    private Guid? _activeTransferId;
+    private FileTransferDirection _activeTransferDirection;
+    private MetricsPayload? _lastMetrics;
     private int _framePresentationScheduled;
     private long _presentedFramesInInterval;
     private double _currentPresentationFps;
@@ -42,10 +53,21 @@ public partial class MainWindow : Window
     private RemoteWindowMode _remoteWindowMode = RemoteWindowMode.Windowed;
     private RemoteWindowMode _modeBeforeFullscreen = RemoteWindowMode.Windowed;
     private Rect _windowedBounds;
+    private StatusDisplayMode _statusDisplayMode = StatusDisplayMode.Simple;
+    private string _lastStatusMessage = "請選擇這臺電腦本次要扮演的角色。";
+    private string? _resolvedDropTarget;
+    private Point _lastDropResolvePoint;
+    private DateTimeOffset _lastDropResolveAt;
+    private bool _dropResolveInProgress;
 
     public MainWindow()
     {
         InitializeComponent();
+        _statusToastTimer.Tick += (_, _) =>
+        {
+            _statusToastTimer.Stop();
+            TransientStatusBorder.Visibility = Visibility.Collapsed;
+        };
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -56,6 +78,7 @@ public partial class MainWindow : Window
         _customShortcuts.AddRange(_shortcutStore.Load());
         RebuildShortcutMenus();
         ApplyScaleMode(RemoteScaleMode.Stretch);
+        ApplyStatusDisplayMode(StatusDisplayMode.Simple);
         SetRoleUi();
     }
 
@@ -94,10 +117,17 @@ public partial class MainWindow : Window
         RemoteHost host = new(
             new GdiJpegScreenFrameSource(),
             new WindowsInputInjector(),
-            new NamedPipeSecureAttentionProvider());
+            new NamedPipeSecureAttentionProvider(),
+            new WindowsExplorerDropTargetResolver(),
+            new WindowsClipboardFileProvider());
         host.StatusChanged += message => RunOnUi(() => SetStatus(message));
         host.MetricsChanged += metrics => RunOnUi(() =>
-            MetricsText.Text = $"送出 {metrics.SentFrames} frames｜最後 {metrics.LastFrameBytes / 1024d:F0} KiB");
+        {
+            _lastMetrics = metrics;
+            UpdateStatusDisplay();
+        });
+        host.FileTransferProgressChanged += progress => RunOnUi(() => UpdateTransferProgress(progress));
+        host.FileTransferCompleted += result => RunOnUi(() => CompleteTransferStatus(result));
         host.PairingApprovalHandler = async (request, cancellationToken) =>
         {
             return await Dispatcher.InvokeAsync(
@@ -120,24 +150,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private bool ApprovePairing(PairingRequest request)
+    private PairingApproval ApprovePairing(PairingRequest request)
     {
         PairingCodeText.Text = FormatPairingCode(request.PairingCode);
         Activate();
-        string message =
-            $"裝置：{request.DeviceName}\n" +
-            $"來源：{request.RemoteEndpoint.Address}\n" +
-            $"系統：{request.OperatingSystem}\n\n" +
-            $"配對碼：{FormatPairingCode(request.PairingCode)}\n\n" +
-            "確認控制端顯示相同配對碼後，才按『是』。";
-        MessageBoxResult result = MessageBox.Show(
-            this,
-            message,
-            "允許本次遠端控制？",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning,
-            MessageBoxResult.No);
-        return result == MessageBoxResult.Yes;
+        PairingApprovalWindow dialog = new(request)
+        {
+            Owner = this,
+        };
+        _ = dialog.ShowDialog();
+        return dialog.Approval;
     }
 
     private async void StopHostButton_Click(object sender, RoutedEventArgs e) => await StopHostAsync();
@@ -203,12 +225,13 @@ public partial class MainWindow : Window
                     MessageBoxImage.Information);
             }
         });
+        controller.FileTransferProgressChanged += progress => RunOnUi(() => UpdateTransferProgress(progress));
+        controller.FileTransferCompleted += result => RunOnUi(() => CompleteTransferStatus(result));
         controller.VideoFrameReceived += EnqueueFrame;
         controller.MetricsReceived += metrics => RunOnUi(() =>
         {
-            long age = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _lastFrameTimestamp);
-            MetricsText.Text = $"實際 {_currentPresentationFps:F1} fps｜丟棄 {_frameBuffer.DroppedCount}｜" +
-                               $"{metrics.LastFrameBytes / 1024d:F0} KiB｜畫面年齡約 {age} ms";
+            _lastMetrics = metrics;
+            UpdateStatusDisplay();
         });
 
         _controller = controller;
@@ -249,6 +272,7 @@ public partial class MainWindow : Window
         SetStatus($"控制 session 已啟用；拖曳視窗即可自適應畫面，F11 切換全螢幕。");
         SetRoleUi();
         RemoteDisplay.Focus();
+        UpdateStatusDisplay();
     }
 
     private async void DisconnectButton_Click(object sender, RoutedEventArgs e) =>
@@ -264,8 +288,10 @@ public partial class MainWindow : Window
         }
 
         LeaveSessionView();
+        _fileTransferWindow?.Close();
+        _fileTransferWindow = null;
         PairingCodeText.Text = "—— —— ——";
-        MetricsText.Text = "尚無畫面資料";
+        _lastMetrics = null;
         if (!_closing)
         {
             SetStatus("控制端已斷線；已返回連線介面並保留位址與畫面模式。");
@@ -294,6 +320,11 @@ public partial class MainWindow : Window
         _remoteWidth = 0;
         _remoteHeight = 0;
         SessionInfoText.Text = "尚未連線";
+        StatusTransferText.Visibility = Visibility.Collapsed;
+        CancelActiveTransferToolButton.Visibility = Visibility.Collapsed;
+        _resolvedDropTarget = null;
+        DropTargetOverlay.Visibility = Visibility.Collapsed;
+        UpdateStatusDisplay();
     }
 
     private void EnqueueFrame(VideoFramePayload frame)
@@ -352,6 +383,7 @@ public partial class MainWindow : Window
                 _currentPresentationFps = _presentedFramesInInterval / _presentationRateTimer.Elapsed.TotalSeconds;
                 _presentedFramesInInterval = 0;
                 _presentationRateTimer.Restart();
+                UpdateStatusDisplay();
             }
         }
         catch (Exception exception) when (exception is NotSupportedException or IOException)
@@ -509,6 +541,82 @@ public partial class MainWindow : Window
         }
     }
 
+    private void StatusOffMenuItem_Click(object sender, RoutedEventArgs e) =>
+        ApplyStatusDisplayMode(StatusDisplayMode.Off);
+
+    private void StatusSimpleMenuItem_Click(object sender, RoutedEventArgs e) =>
+        ApplyStatusDisplayMode(StatusDisplayMode.Simple);
+
+    private void StatusDetailedMenuItem_Click(object sender, RoutedEventArgs e) =>
+        ApplyStatusDisplayMode(StatusDisplayMode.Detailed);
+
+    private void ApplyStatusDisplayMode(StatusDisplayMode mode)
+    {
+        _statusDisplayMode = mode;
+        StatusOffMenuItem.IsChecked = mode == StatusDisplayMode.Off;
+        StatusSimpleMenuItem.IsChecked = mode == StatusDisplayMode.Simple;
+        StatusDetailedMenuItem.IsChecked = mode == StatusDisplayMode.Detailed;
+        ToolbarStatusPanel.Visibility = mode == StatusDisplayMode.Off
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        DetailedStatusPanel.Visibility = mode == StatusDisplayMode.Detailed
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateStatusDisplay();
+    }
+
+    private void UpdateStatusDisplay()
+    {
+        bool hosting = _host is not null;
+        bool connected = _controller?.IsConnected == true;
+        StatusConnectionText.Text = connected
+            ? "● 已連線"
+            : hosting ? "● 等候連線" : "● 尚未連線";
+        StatusConnectionText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(
+            connected ? "#047857" : hosting ? "#B45309" : "#64748B"));
+        StatusFpsText.Text = connected ? $"｜{_currentPresentationFps:F1} FPS" : string.Empty;
+
+        QualityProfile profile = _controller?.CurrentQualityProfile ?? QualityProfiles.Get(_selectedQualityPreset);
+        SessionInfoText.Text = connected
+            ? $"｜目標 {profile.FramesPerSecond} FPS｜{_remoteWidth}×{_remoteHeight}"
+            : hosting ? "｜被控端" : string.Empty;
+        if (_lastMetrics is MetricsPayload metrics)
+        {
+            long age = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _lastFrameTimestamp);
+            MetricsText.Text = connected
+                ? $"｜丟棄 {_frameBuffer.DroppedCount}｜{metrics.LastFrameBytes / 1024d:F0} KiB｜畫面 {age} ms｜{_lastStatusMessage}"
+                : $"｜已送出 {metrics.SentFrames}｜{metrics.LastFrameBytes / 1024d:F0} KiB｜{_lastStatusMessage}";
+        }
+        else
+        {
+            MetricsText.Text = $"｜{_lastStatusMessage}";
+        }
+    }
+
+    private void UpdateTransferProgress(FileTransferProgress progress)
+    {
+        _activeTransferId = progress.TransferId;
+        _activeTransferDirection = progress.Direction;
+        double percentage = progress.TotalBytes == 0
+            ? 100
+            : progress.TransferredBytes * 100d / progress.TotalBytes;
+        StatusTransferText.Text =
+            $"｜{(progress.Direction == FileTransferDirection.Upload ? "上傳" : "下載")} {percentage:F0}%";
+        StatusTransferText.Visibility = Visibility.Visible;
+        CancelActiveTransferToolButton.Visibility = _controller is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateStatusDisplay();
+    }
+
+    private void CompleteTransferStatus(FileTransferResult result)
+    {
+        _activeTransferId = null;
+        CancelActiveTransferToolButton.Visibility = Visibility.Collapsed;
+        StatusTransferText.Visibility = Visibility.Collapsed;
+        SetStatus(result.Message);
+    }
+
     private async void SasToolButton_Click(object sender, RoutedEventArgs e)
     {
         RemoteController? controller = _controller;
@@ -664,6 +772,167 @@ public partial class MainWindow : Window
         {
             SetStatus($"快捷鍵傳送失敗：{exception.Message}");
         }
+    }
+
+    private void FileTransferMenuItem_Click(object sender, RoutedEventArgs e) =>
+        OpenFileTransferWindow();
+
+    private void OpenFileTransferWindow(IEnumerable<string>? localSources = null)
+    {
+        RemoteController? controller = _controller;
+        if (controller?.IsConnected != true)
+        {
+            SetStatus("請先建立控制 session，再開啟檔案傳輸。");
+            return;
+        }
+
+        if (!controller.FileTransferAllowed)
+        {
+            SetStatus("被控端沒有開啟本次 session 的檔案傳輸權限；請斷線後重新核准。");
+            return;
+        }
+
+        if (_fileTransferWindow is null || !_fileTransferWindow.IsLoaded)
+        {
+            _fileTransferWindow = new FileTransferWindow(controller)
+            {
+                Owner = this,
+            };
+            _fileTransferWindow.Closed += (_, _) => _fileTransferWindow = null;
+            _fileTransferWindow.Show();
+        }
+        else
+        {
+            _fileTransferWindow.Activate();
+        }
+
+        if (localSources is not null)
+        {
+            _fileTransferWindow.AddLocalSources(localSources);
+        }
+    }
+
+    private async void ReceiveRemoteClipboardMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        RemoteController? controller = _controller;
+        if (controller?.IsConnected != true || !controller.FileTransferAllowed)
+        {
+            SetStatus("請先建立已允許檔案傳輸的控制 session。");
+            return;
+        }
+
+        try
+        {
+            SetStatus("正在讀取遠端剪貼簿中的檔案清單…");
+            IReadOnlyList<string> paths = await controller.GetRemoteClipboardFilesAsync();
+            if (paths.Count == 0)
+            {
+                SetStatus("遠端剪貼簿目前沒有可傳輸的檔案或資料夾。");
+                return;
+            }
+
+            string defaultDestination = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Downloads",
+                "LanRemote Incoming");
+            OpenFolderDialog dialog = new()
+            {
+                Title = $"選擇 {paths.Count} 個遠端剪貼簿項目的接收位置",
+                InitialDirectory = Directory.Exists(defaultDestination)
+                    ? defaultDestination
+                    : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            };
+            if (dialog.ShowDialog(this) != true)
+            {
+                SetStatus("已取消接收遠端剪貼簿檔案。");
+                return;
+            }
+
+            await RunDirectTransferAsync(
+                FileTransferDirection.Download,
+                token => controller.DownloadAsync(paths, dialog.FolderName, token));
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            SetStatus($"接收遠端剪貼簿失敗：{exception.Message}");
+        }
+    }
+
+    private async Task RunDirectTransferAsync(
+        FileTransferDirection direction,
+        Func<CancellationToken, Task<FileTransferResult>> action)
+    {
+        if (_directTransferCancellation is not null)
+        {
+            SetStatus("已有一批直接拖放／剪貼簿傳輸正在進行；可從 Toolbar 取消。");
+            return;
+        }
+
+        _directTransferCancellation = new CancellationTokenSource();
+        _activeTransferDirection = direction;
+        CancelActiveTransferToolButton.Visibility = Visibility.Visible;
+        try
+        {
+            SetStatus(direction == FileTransferDirection.Upload
+                ? "正在建立檔案 manifest 並上傳…"
+                : "正在接收遠端檔案…");
+            FileTransferResult result = await action(_directTransferCancellation.Token);
+            SetStatus(result.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus("傳輸已取消；partial 已依你的選擇保留或清除。");
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            SetStatus($"檔案傳輸失敗：{exception.Message}");
+        }
+        finally
+        {
+            _directTransferCancellation.Dispose();
+            _directTransferCancellation = null;
+            _activeTransferId = null;
+            StatusTransferText.Visibility = Visibility.Collapsed;
+            CancelActiveTransferToolButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void CancelActiveTransferToolButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_directTransferCancellation is null)
+        {
+            _fileTransferWindow?.Activate();
+            return;
+        }
+
+        MessageBoxResult choice = MessageBox.Show(
+            this,
+            "要刪除尚未完成的 partial 檔嗎？\n\n是：刪除\n否：保留供下次續傳",
+            "取消檔案傳輸",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+        if (choice == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+
+        if (_activeTransferId is Guid transferId && _controller is not null)
+        {
+            try
+            {
+                await _controller.CancelTransferAsync(
+                    transferId,
+                    _activeTransferDirection,
+                    choice == MessageBoxResult.Yes);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException)
+            {
+                SetStatus($"取消要求未完整送達：{exception.Message}");
+            }
+        }
+
+        _directTransferCancellation.Cancel();
     }
 
     private void WindowedMenuItem_Click(object sender, RoutedEventArgs e) =>
@@ -831,6 +1100,149 @@ public partial class MainWindow : Window
         }
     }
 
+    private void RemoteDisplay_DragEnter(object sender, DragEventArgs e)
+    {
+        if (!CanAcceptFileDrop(e))
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        DropTargetText.Text = "正在解析遠端目的地…";
+        DropTargetOverlay.Visibility = Visibility.Visible;
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private async void RemoteDisplay_DragOver(object sender, DragEventArgs e)
+    {
+        if (!CanAcceptFileDrop(e))
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        Point position = e.GetPosition(RemoteDisplay);
+        if (!_dropResolveInProgress &&
+            (DateTimeOffset.UtcNow - _lastDropResolveAt > TimeSpan.FromMilliseconds(450) ||
+             (position - _lastDropResolvePoint).Length > 28))
+        {
+            await ResolveDropTargetAsync(position);
+        }
+
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private void RemoteDisplay_DragLeave(object sender, DragEventArgs e)
+    {
+        DropTargetOverlay.Visibility = Visibility.Collapsed;
+        _resolvedDropTarget = null;
+    }
+
+    private async void RemoteDisplay_Drop(object sender, DragEventArgs e)
+    {
+        DropTargetOverlay.Visibility = Visibility.Collapsed;
+        if (!CanAcceptFileDrop(e) ||
+            e.Data.GetData(DataFormats.FileDrop) is not string[] paths || paths.Length == 0)
+        {
+            return;
+        }
+
+        Point position = e.GetPosition(RemoteDisplay);
+        if (string.IsNullOrWhiteSpace(_resolvedDropTarget))
+        {
+            await ResolveDropTargetAsync(position);
+        }
+
+        string? destination = _resolvedDropTarget;
+        _resolvedDropTarget = null;
+        if (string.IsNullOrWhiteSpace(destination))
+        {
+            SetStatus("無法可靠辨識放下位置；已開啟檔案傳輸視窗，請選擇遠端路徑。");
+            OpenFileTransferWindow(paths);
+            return;
+        }
+
+        SetStatus($"拖放目的地：{destination}");
+        RemoteController controller = _controller!;
+        await RunDirectTransferAsync(
+            FileTransferDirection.Upload,
+            token => controller.UploadAsync(paths, destination, token));
+        e.Handled = true;
+    }
+
+    private bool CanAcceptFileDrop(DragEventArgs e) =>
+        _controller?.IsConnected == true &&
+        _controller.FileTransferAllowed &&
+        e.Data.GetDataPresent(DataFormats.FileDrop);
+
+    private async Task ResolveDropTargetAsync(Point position)
+    {
+        RemoteController? controller = _controller;
+        if (controller?.IsConnected != true || !controller.FileTransferAllowed ||
+            !TryNormalizePosition(position, out float x, out float y))
+        {
+            _resolvedDropTarget = null;
+            DropTargetText.Text = "放開後選擇遠端目的路徑";
+            return;
+        }
+
+        _dropResolveInProgress = true;
+        _lastDropResolvePoint = position;
+        _lastDropResolveAt = DateTimeOffset.UtcNow;
+        try
+        {
+            DropTargetResponse response = await controller.ResolveDropTargetAsync(x, y);
+            _resolvedDropTarget = response.Path;
+            DropTargetText.Text = response.Path is null
+                ? "無法辨識目前位置；放開後選擇遠端路徑"
+                : $"傳送至：{response.Path}";
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _resolvedDropTarget = null;
+            DropTargetText.Text = $"無法辨識位置：{exception.Message}";
+        }
+        finally
+        {
+            _dropResolveInProgress = false;
+        }
+    }
+
+    private async Task UploadLocalClipboardFilesAsync()
+    {
+        if (!Clipboard.ContainsFileDropList())
+        {
+            return;
+        }
+
+        string[] paths = Clipboard.GetFileDropList().Cast<string>().ToArray();
+        if (paths.Length == 0)
+        {
+            return;
+        }
+
+        Point position = Mouse.GetPosition(RemoteDisplay);
+        await ResolveDropTargetAsync(position);
+        string? destination = _resolvedDropTarget;
+        _resolvedDropTarget = null;
+        DropTargetOverlay.Visibility = Visibility.Collapsed;
+        if (string.IsNullOrWhiteSpace(destination))
+        {
+            SetStatus("無法可靠辨識貼上位置；已開啟檔案傳輸視窗，請選擇遠端路徑。");
+            OpenFileTransferWindow(paths);
+            return;
+        }
+
+        RemoteController controller = _controller!;
+        await RunDirectTransferAsync(
+            FileTransferDirection.Upload,
+            token => controller.UploadAsync(paths, destination, token));
+    }
+
     private void RemoteDisplay_MouseMove(object sender, MouseEventArgs e)
     {
         Point position = e.GetPosition(RemoteDisplay);
@@ -864,8 +1276,6 @@ public partial class MainWindow : Window
     private void ShowControllerCursor(Point position)
     {
         ControllerCursorLayer.Visibility = Visibility.Visible;
-        Canvas.SetLeft(ControllerCursorHalo, position.X - 15);
-        Canvas.SetTop(ControllerCursorHalo, position.Y - 15);
         Canvas.SetLeft(ControllerCursorArrow, position.X);
         Canvas.SetTop(ControllerCursorArrow, position.Y);
     }
@@ -917,6 +1327,14 @@ public partial class MainWindow : Window
         }
 
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key == Key.V && Keyboard.Modifiers.HasFlag(ModifierKeys.Control) &&
+            _controller.FileTransferAllowed && Clipboard.ContainsFileDropList())
+        {
+            _ = UploadLocalClipboardFilesAsync();
+            e.Handled = true;
+            return;
+        }
+
         int virtualKey = KeyInterop.VirtualKeyFromKey(key);
         if (virtualKey is > 0 and <= ushort.MaxValue)
         {
@@ -1022,14 +1440,32 @@ public partial class MainWindow : Window
         ScaleModeComboBox.IsEnabled = session;
         SasToolButton.IsEnabled = session;
         CtrlAltZeroToolButton.IsEnabled = session;
+        bool fileTransfer = session && _controller?.FileTransferAllowed == true;
+        FileTransferMenuItem.IsEnabled = fileTransfer;
+        ReceiveClipboardMenuItem.IsEnabled = fileTransfer;
+        FileTransferToolButton.IsEnabled = fileTransfer;
+        ReceiveClipboardToolButton.IsEnabled = fileTransfer;
         RebuildShortcutMenus();
         ModeBadge.Text = hosting ? "被控端模式" : controlling ? "控制端模式" : "尚未連線";
+        UpdateStatusDisplay();
     }
 
     private static string FormatPairingCode(string code) =>
         code.Length == 6 ? $"{code[..3]} {code[3..]}" : code;
 
-    private void SetStatus(string message) => StatusText.Text = message;
+    private void SetStatus(string message)
+    {
+        _lastStatusMessage = message;
+        StatusText.Text = message;
+        if (IsLoaded && !_closing)
+        {
+            TransientStatusBorder.Visibility = Visibility.Visible;
+            _statusToastTimer.Stop();
+            _statusToastTimer.Start();
+        }
+
+        UpdateStatusDisplay();
+    }
 
     private void RunOnUi(Action action)
     {
@@ -1050,6 +1486,9 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
         _closing = true;
+        _statusToastTimer.Stop();
+        _directTransferCancellation?.Cancel();
+        _fileTransferWindow?.Close();
         IsEnabled = false;
         try
         {
@@ -1068,5 +1507,12 @@ public partial class MainWindow : Window
         Windowed,
         Maximized,
         Fullscreen,
+    }
+
+    private enum StatusDisplayMode
+    {
+        Off,
+        Simple,
+        Detailed,
     }
 }

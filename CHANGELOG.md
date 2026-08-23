@@ -23,6 +23,13 @@
 - 加入 Fit／Stretch／Crop 三種縮放與對應座標映射，預設 Stretch 滿版。
 - 被控端原生游標合成進 frame；控制端加入青色箭頭、白色描邊、半透明光圈，並依使用者確認移除「控制」文字標籤。
 - 修正重複發包時 `Compress-Archive -Force` 產生 duplicate entries，改成全新暫存 ZIP 完成後覆寫成品。
+- 升級協定為 v4，在配對核准視窗加入預設關閉的「允許本次連線傳輸檔案」；斷線後授權自動失效。
+- 新增雙向檔案／資料夾上傳與下載、遠端路徑瀏覽、遠端檔案剪貼簿取得，以及本機檔案拖放／Ctrl+V 傳到可靠解析的遠端桌面或目前 Explorer 路徑。
+- 新增 256 KiB 分塊、單檔 2 GB／單批 10 GB 上限、SHA-256 完成驗證、partial 斷線續傳、取消／清理、同名自動改名與不覆寫。
+- 檔案路徑政策拒絕路徑逸出、ADS、UNC、reparse point／symlink／junction，並禁止寫入 Windows、Program Files、ProgramData 與 Startup。
+- 新增類雲端硬碟的檔案傳輸視窗：本機來源、遠端磁碟／資料夾瀏覽、上傳、下載、進度與取消。
+- 移除底部狀態列；Toolbar 狀態改為「關閉／簡易（預設）／詳細」，詳細模式只多一條薄診斷列，錯誤以短暫 toast 顯示。
+- 移除控制端游標光圈，將青色／白邊箭頭縮小約 20%，繼續不顯示文字標籤。
 
 ### Validation
 
@@ -39,9 +46,12 @@
 - self-contained win-x64 ZIP 依 source revision `9515ca698ad1b262fcd1c765dde7082099f61ade` 重建；135,966,577 bytes，SHA-256 `CFEE020B5DF15720832DD17AD760760D81483728838E5A56C378183EC10BCC9B`。
 - ZIP 回讀：743 entries、743 unique、0 duplicate；`SHA256.txt` 內 9 個關鍵 EXE／DLL／腳本 hash 全數 PASS。
 - `LanRemote.App.exe` 與 `LanRemote.SasService.exe` Authenticode 均為 `NotSigned`，符合未簽章測試候選定位。
+- v4 `dotnet test --configuration Release`：47/47 通過；TLS loopback 實際完成跨 chunk 上傳、同名自動改名、遠端瀏覽、反向下載與內容一致，另回讀 partial 續傳 offset、清理、磁碟根目錄目的地與內容指紋識別碼。
+- v4 Release build 六專案 0 warning／0 error；Computer Use 回讀主視窗，確認底部狀態列消失、Toolbar 簡易摘要固定可見，並實際切換詳細薄列與關閉模式。
+- GUI 雙實例測試在啟動被控端時出現 Windows Firewall 系統提示；依工作單不代替使用者修改安全設定，因此停止該步，配對勾選視窗與連線中檔案 UI 仍待人工雙機證據。
 
 ### Delivery
 
 - GitHub：`LOCAL_ONLY/NOT_CONFIGURED`
-- ReadyGate（`WO-LANREMOTE-INPUT-FPS-CURSOR-V1`）：`NOT_READY` 正式發布；v3 ZIP 只供自有兩機測試，等待 Windows 10／11 雙向 GUI、SAS、安全桌面、游標與實際 FPS 證據。
+- ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`）：正式發布預期仍為 `NOT_READY`；v4 ZIP 只供自有兩機測試，等待 Windows 10／11 雙向 GUI、拖放／Toolbar／剪貼簿／續傳、SAS、游標與實際 FPS 證據。
 - 原 MVP 的 WGC + Media Foundation H.264 效能目標仍未完成，保留為後續獨立工作項目。
