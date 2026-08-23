@@ -10,7 +10,7 @@ LanRemote 目前為本機 package v4.4.1／協定 v7 測試候選。既有遠端
 
 ## 目前狀態
 
-- Git：本機 `main` 與 `origin/main` 的開工基準都是 `b3ca0f26cbc964b04d5f6a77f9f2c93fc8a87722`；使用者已明確授權 v4.4.1 source checkpoint，目前為 `PENDING_CHECKPOINT`。
+- Git：v4.4.1 source commit `5f356da46c51146fda6c47c736a02b65a99756af` 已非強制推送到 `origin/main` 並回讀一致；目前只剩本檔與相關收工文件的 follow-up checkpoint。
 - v4.4.1 測試包：[artifacts/LanRemote-v4.4.1-win-x64.zip](artifacts/LanRemote-v4.4.1-win-x64.zip)，136,931,178 bytes。
 - ZIP SHA-256：`85FD41ADDE5D106AFC53122D3C596AFF0597D0BA0C4430889F0223F0FDC59579`；`LanRemote.App.exe` SHA-256：`71AB957E94FE2694218F14354A012A14B1A5C72254764A068FB79527CED9DA08`。
 - ZIP 回讀：746 entries、746 unique、0 duplicate、12/12 manifest PASS；包內附 `LanRemote.App.png`、`LanRemote.App.ico` 與 `ICON-PROVENANCE.md`。
@@ -56,7 +56,8 @@ LanRemote 目前為本機 package v4.4.1／協定 v7 測試候選。既有遠端
 
 ## 最近更新
 
-- 時間：2026-08-23 16:11 +08:00
+- 時間：2026-08-23 16:26 +08:00
 - 更新者：Codex
 - 執行環境：runtime device（未寫入裝置識別）
-- GitHub：v4.4.1 source checkpoint `PENDING_CHECKPOINT`；目標為既有 `origin/main`，不建立 tag／Release
+- 成果 commit：`5f356da46c51146fda6c47c736a02b65a99756af`
+- GitHub：`VERIFIED source checkpoint 5f356da46c51146fda6c47c736a02b65a99756af`；本檔為 follow-up shutdown docs checkpoint，不建立 tag／Release

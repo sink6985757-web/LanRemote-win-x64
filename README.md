@@ -153,7 +153,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Package.
 
 ## Delivery 狀態
 
-- Git：本機 `main` 追蹤 `origin/main`；v4.4.1 source checkpoint 已由使用者授權，正在依 shutdown 流程驗證與推送。
+- Git：v4.4.1 Open Source checkpoint `5f356da46c51146fda6c47c736a02b65a99756af` 已非強制推送並由 `origin/main` 回讀；後續只有收工文件 checkpoint。
 - GitHub：公開 repository `sink6985757-web/LanRemote-win-x64`，預設分支 `main`；只包含原始碼與文件，不包含 ignored 測試 ZIP／build outputs。
 - License：Apache License 2.0（`Apache-2.0`），GitHub 已正確偵測。
 - ReadyGate（`WO-LANREMOTE-V441-LIVE-QA-KEYBOARD-HOOK-20260823`）：本機 protocol v7、低階鍵盤 hook、全鍵盤路由、選取列 source contract、原創應用程式圖示、91 項 Debug／Release 測試、封裝與 launcher smoke 已驗證；正式發布仍停止，等待 v4.4.1 Windows 10／11 的 schema v8 Right Alt、被控端輸入法、檔案選取視覺與完整回歸證據。

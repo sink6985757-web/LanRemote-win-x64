@@ -133,7 +133,7 @@
 
 ### Delivery
 
-- GitHub：`PENDING_CHECKPOINT` — 使用者已明確授權將 v4.4.1 原始碼、公開 README、原創圖示與治理文件非強制推送到既有 `origin/main`；不包含 ignored ZIP／build outputs／私人 evidence，也不建立 tag 或 Release。
+- GitHub：`VERIFIED source checkpoint 5f356da46c51146fda6c47c736a02b65a99756af` — v4.4.1 原始碼、公開 README、原創圖示與治理文件已非強制推送到既有 `origin/main` 並回讀一致；ignored ZIP／build outputs／私人 evidence 未提交，未建立 tag 或 Release。本次檔案包含後續收工文件 checkpoint。
 - ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`，Cycle 3）：正式發布為 `NOT_READY`；v4.1 ZIP 只供自有兩機測試。既有檔案傳輸由 Yulin 回報正常，新版快捷鍵直通與完整雙向回歸仍待 schema v3 證據。
 - ReadyGate（`WO-LANREMOTE-V5-TEXT-CLIPBOARD-20260823`）：本機功能、53 項測試、GUI smoke 與 ZIP 完整性已驗證；正式發布仍為 `NOT_READY`，等待 Windows 10／11 兩個控制方向的 schema v4 實機證據。
 - ReadyGate（`WO-LANREMOTE-V6-BIDIRECTIONAL-FILE-SESSION-20260823`）：本機功能、57 項 Release 測試、封裝版 GUI smoke 與 ZIP 完整性已驗證；正式發布仍為 `NOT_READY`，等待 Windows 10／11 schema v5 兩端主動傳輸與完整回歸證據。

@@ -3,8 +3,8 @@ readygate_version: 1
 profile: general
 subject: LanRemote v4.4.1 全鍵盤擷取、檔案選取對比與原創圖示
 scope: 本機 protocol v7 實作、驗證與自有兩機測試候選
-revision: b3ca0f26cbc964b04d5f6a77f9f2c93fc8a87722+local
-evidence_cutoff: 2026-08-23 16:11 +08:00
+revision: 5f356da46c51146fda6c47c736a02b65a99756af
+evidence_cutoff: 2026-08-23 16:26 +08:00
 status: CONDITIONAL
 workflow_state: DELIVERY_REVIEW
 work_order: WO-LANREMOTE-V441-LIVE-QA-KEYBOARD-HOOK-20260823
@@ -16,9 +16,9 @@ reviewer: Codex；Yulin 為工作單與圖示增補確認者
 
 ## 結論
 
-**CONDITIONAL** — v4.4.1／protocol v7 的低階全鍵盤擷取、檔案選取高對比、原創應用程式圖示、自動測試、封裝與 launcher smoke 已通過，可交由 Yulin 在自有 Windows 11 25H2／Windows 10 22H2 兩機進行驗收；修正版 Right Alt、被控端輸入法、作用中／失焦選取視覺及完整雙向回歸尚無 v4.4.1 實機證據，因此正式軟體發布仍為 **NOT_READY**。
+**CONDITIONAL** — v4.4.1／protocol v7 的低階全鍵盤擷取、檔案選取高對比、原創應用程式圖示、自動測試、封裝與 launcher smoke 已通過，Open Source source checkpoint `5f356da46c51146fda6c47c736a02b65a99756af` 也已推送並回讀；修正版 Right Alt、被控端輸入法、作用中／失焦選取視覺及完整雙向回歸尚無 v4.4.1 實機證據，因此正式簽章 binary／GitHub Release 仍為 **NOT_READY**。
 
-Yulin 已在本卡完成後另行明確授權目前 v4.4.1 的公開 source checkpoint 與 Open Source README；仍不授權 tag、GitHub Release、簽章或正式相容性／效能宣稱。
+Yulin 已另行明確授權目前 v4.4.1 的公開 source checkpoint 與 Open Source README；source checkpoint 已完成，仍不授權 tag、GitHub Release、簽章或正式相容性／效能宣稱。
 
 ## 五道閘門
 
@@ -28,13 +28,14 @@ Yulin 已在本卡完成後另行明確授權目前 v4.4.1 的公開 source chec
 | G2 輸入與版本 | VERIFIED | Git baseline `b3ca0f26...`、live v4.4／protocol v7 輸入、v4.4.1／protocol v7 輸出、圖示提示與三個資產 SHA-256 均可追溯。 |
 | G3 耦合與風險 | VERIFIED | hook 只在前景＋遠端輸入狀態攔截非 injected 實體鍵，只有本機 SAS 不轉送；失焦／斷線解除並 release-all。圖示未使用第三方圖片或品牌元素。 |
 | G4 驗證與證據 | CONDITIONAL | Debug／Release 91/91、build、format、scripts、NuGet audit、ZIP、EXE 圖示抽取、小尺寸預覽與 launcher smoke 通過；v4.4.1 兩機人工驗收待補。 |
-| G5 交付與回復 | VERIFIED | v4.4.1 ZIP、SHA-256、746 unique entries 與 12/12 manifest 可回讀；鍵盤 critical 問題可把 controller 換回同為 protocol v7 的 v4.4。 |
+| G5 交付與回復 | VERIFIED | source commit `5f356da...` 已推送並回讀；v4.4.1 ZIP、SHA-256、746 unique entries 與 12/12 manifest 可回讀，鍵盤 critical 問題可把 controller 換回同為 protocol v7 的 v4.4。 |
 
 ## Critical 證據
 
 | 項目 | 狀態 | 證據／來源 | 範圍與版本 | 缺口 |
 |---|---|---|---|---|
 | 已確認工作單 | VERIFIED | `readygate/WORK_ORDER-LIVE-QA-KEYBOARD-HOOK-V441.md` | Cycle 3／3；包含原創圖示增補 | 無 |
+| Open Source source checkpoint | VERIFIED | local commit、`git push`、`git ls-remote` | `origin/main` = `5f356da46c51146fda6c47c736a02b65a99756af` | follow-up shutdown docs 另做 checkpoint |
 | v4.4 live 基線 | VERIFIED | ignored `readygate/evidence-inbox/20260823-v44-live-baseline.json` | 畫面／一般鍵／檔案傳輸通過；Right Alt／host IME／Caps Lock 失敗 | 只證明修正前問題，不證明 v4.4.1 |
 | 低階鍵盤 routing | VERIFIED | hook／mapper／state tests、UI source contract、TLS loopback | 前景、非 injected、all keys remote、local SAS、release-all | 真實 Right Alt／被控端 IME 待 Yulin 測試 |
 | 本機 SAS 邊界 | VERIFIED | routing state tests、injector defense-in-depth | 實體 Ctrl+Alt+Delete 不送遠端；Toolbar SAS 路徑保留 | 依工作單不以自動化觸發安全桌面 |
@@ -62,7 +63,7 @@ Yulin 已在本卡完成後另行明確授權目前 v4.4.1 的公開 source chec
 
 ## 放行決定
 
-- 決定：放行自有兩機 v4.4.1 驗收，並依 2026-08-23 後續明確授權放行目前 `main` 的公開 source checkpoint。
+- 決定：自有兩機 v4.4.1 驗收可繼續；依 2026-08-23 後續明確授權完成目前 `main` 的公開 source checkpoint。
 - 停止：tag、GitHub Release、簽章發包、權限變更、正式相容性或效能宣稱。
 - override：無。
 
