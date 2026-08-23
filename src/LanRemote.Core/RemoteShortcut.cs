@@ -25,6 +25,27 @@ public sealed record RemoteShortcut(string Name, ushort VirtualKey, ShortcutModi
     public static RemoteShortcut ControlAltZero { get; } =
         new("Ctrl+Alt+0", 0x30, ShortcutModifiers.Control | ShortcutModifiers.Alt);
 
+    public static RemoteShortcut ControlCopy { get; } =
+        new("複製", 0x43, ShortcutModifiers.Control);
+
+    public static RemoteShortcut ControlCut { get; } =
+        new("剪下", 0x58, ShortcutModifiers.Control);
+
+    public static RemoteShortcut ControlPaste { get; } =
+        new("貼上", 0x56, ShortcutModifiers.Control);
+
+    public static bool TryGetClipboardHotkey(ushort virtualKey, out RemoteShortcut? shortcut)
+    {
+        shortcut = virtualKey switch
+        {
+            0x43 => ControlCopy,
+            0x58 => ControlCut,
+            0x56 => ControlPaste,
+            _ => null,
+        };
+        return shortcut is not null;
+    }
+
     public IReadOnlyList<RemoteInputEvent> ToInputEvents()
     {
         List<RemoteInputEvent> events = [];

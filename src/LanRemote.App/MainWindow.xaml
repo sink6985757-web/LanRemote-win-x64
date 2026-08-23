@@ -39,6 +39,19 @@
             <Setter Property="Background" Value="#253650" />
             <Setter Property="FontWeight" Value="Normal" />
         </Style>
+        <Style x:Key="ToolToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="Margin" Value="3,2" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="Background" Value="#64748B" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="Normal" />
+            <Style.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="#0F766E" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -129,11 +142,16 @@
                             <Button x:Name="CtrlAltZeroToolButton" Style="{StaticResource ToolButtonStyle}"
                                     Content="Ctrl+Alt+0" Click="CtrlAltZeroToolButton_Click" />
                             <Separator />
+                            <ToggleButton x:Name="RemoteClipboardHotkeysToggle"
+                                          Style="{StaticResource ToolToggleStyle}"
+                                          Content="C/X/V 直通" IsChecked="True" IsEnabled="False"
+                                          ToolBar.OverflowMode="Never"
+                                          ToolTip="開啟：快捷鍵直接操作被控端剪貼簿；關閉：本機檔案 Ctrl+V 使用跨機上傳"
+                                          Checked="RemoteClipboardHotkeysToggle_Changed"
+                                          Unchecked="RemoteClipboardHotkeysToggle_Changed" />
                             <Button x:Name="FileTransferToolButton" Style="{StaticResource ToolButtonStyle}"
-                                    Content="⇄ 檔案傳輸" Click="FileTransferMenuItem_Click" IsEnabled="False" />
-                            <Button x:Name="ReceiveClipboardToolButton" Style="{StaticResource ToolButtonStyle}"
-                                    Content="⇩ 遠端剪貼簿" Click="ReceiveRemoteClipboardMenuItem_Click"
-                                    IsEnabled="False" />
+                                    Content="⇄ 檔案" Click="FileTransferMenuItem_Click" IsEnabled="False"
+                                    ToolBar.OverflowMode="Never" />
                             <Menu Background="Transparent" Foreground="#162033" VerticalAlignment="Center">
                                 <MenuItem x:Name="ShortcutToolMenu" Header="⌨ 自訂按鍵">
                                     <MenuItem x:Name="CustomShortcutEntriesMenu" Header="送出自訂按鍵" />

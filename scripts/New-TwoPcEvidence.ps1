@@ -30,6 +30,9 @@ param(
     [bool]$KeyboardPassed,
 
     [Parameter(Mandatory)]
+    [bool]$RemoteClipboardHotkeysPassed,
+
+    [Parameter(Mandatory)]
     [bool]$ImmediateDisconnectPassed,
 
     [Parameter(Mandatory)]
@@ -67,7 +70,7 @@ if ([string]::IsNullOrWhiteSpace($PackageDirectory)) {
         $PackageDirectory = $PSScriptRoot
     }
     else {
-        $PackageDirectory = Join-Path $projectRoot "artifacts\LanRemote-win-x64"
+        $PackageDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.1-win-x64"
     }
 }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -94,7 +97,7 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $outputFile = Join-Path $OutputDirectory ("{0}-{1}-{2}.json" -f $timestamp, $safeComputerName, $Direction)
 
 $evidence = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     recordedAt = (Get-Date).ToString("o")
     computerName = $env:COMPUTERNAME
     peerComputer = $PeerComputer
@@ -118,6 +121,7 @@ $evidence = [ordered]@{
         pairingCodesMatched = $PairingCodesMatched
         mousePassed = $MousePassed
         keyboardPassed = $KeyboardPassed
+        remoteClipboardHotkeysPassed = $RemoteClipboardHotkeysPassed
         immediateDisconnectPassed = $ImmediateDisconnectPassed
         dragDropUploadPassed = $DragDropUploadPassed
         toolbarUploadPassed = $ToolbarUploadPassed

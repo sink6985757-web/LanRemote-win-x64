@@ -3,7 +3,7 @@ LanRemote 區網雙向控制 MVP
 
 這是一份未簽章的本機測試包，不是公開發布版本。
 
-重要：本包使用協定 v4，兩臺電腦都必須換成這一份新版。舊版不能和新版混用。
+重要：本包版本為 v4.1、使用協定 v4；兩臺電腦都必須換成這一份新版。舊版不能和新版混用。
 
 適用情境
 --------
@@ -43,6 +43,8 @@ Toolbar 狀態
 
 快捷鍵與游標
 ------------
+- Toolbar「遠端 Ctrl+C／X／V」預設開啟；直接在控制端按快捷鍵即可操作被控端目前程式及被控端自己的剪貼簿。
+- 關閉此開關後，本機剪貼簿若含檔案，Ctrl+V 會改走跨機檔案上傳；這不是背景文字／圖片剪貼簿同步。
 - 工具列有 Ctrl+Alt+0，可直接送到遠端目前作用中的應用程式。
 - 「自訂按鍵」選單可新增、送出與移除最多 20 組本機快捷鍵；設定保存在目前 Windows 使用者的 LocalAppData。
 - Windows 鍵、Ctrl+Alt+Delete、Alt+F4、Ctrl+Escape 不接受為自訂項目。
@@ -51,10 +53,10 @@ Toolbar 狀態
 檔案傳輸
 --------
 1. 被控端核准配對時，如本次需傳檔，勾選「允許本次連線傳輸檔案」；斷線後授權自動失效。
-2. 可把本機檔案／資料夾拖進遠端畫面，或在本機檔案總管複製後，對遠端畫面按 Ctrl+V。
+2. 可把本機檔案／資料夾拖進遠端畫面；若要在本機檔案總管複製後以 Ctrl+V 跨機上傳，先關閉 Toolbar「遠端 Ctrl+C／X／V」。
 3. 拖放時畫面會顯示遠端桌面或目前檔案總管路徑；無法靠譜辨識時，會改開傳輸視窗讓你選路徑。
 4. File > 檔案傳輸或 Toolbar「檔案傳輸」可選本機來源、瀏覽遠端磁碟／資料夾，並上傳或下載。
-5. 遠端檔案總管複製檔案後，按 Toolbar「遠端剪貼簿」，再選本機接收路徑。
+5. 遠端檔案總管複製檔案後，選 File >「接收遠端剪貼簿檔案」，再選本機接收路徑。
 6. 同名檔自動改為「檔名 (1)」，不覆寫；單檔上限 2 GB、單批 10 GB，完成後驗證 SHA-256。
 7. 取消時可選擇刪除 partial，或保留供同一批路徑下次續傳。
 
@@ -95,6 +97,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\New-TwoPcEvidence.ps1 
   -Direction Windows11-controls-Windows10 -Result PASS -PeerComputer 另一臺名稱 `
   -DurationSeconds 300 -ObservedFps 48 -P95InteractionLatencyMs 180 `
   -PairingCodesMatched $true -MousePassed $true -KeyboardPassed $true `
+  -RemoteClipboardHotkeysPassed $true `
   -ImmediateDisconnectPassed $true -DragDropUploadPassed $true `
   -ToolbarUploadPassed $true -ToolbarDownloadPassed $true `
   -FileClipboardPassed $true -ResumePassed $true -StatusModesPassed $true `

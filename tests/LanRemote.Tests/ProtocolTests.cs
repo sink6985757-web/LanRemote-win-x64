@@ -181,6 +181,26 @@ public sealed class ProtocolTests
     }
 
     [Theory]
+    [InlineData(0x43, "Ctrl+C")]
+    [InlineData(0x58, "Ctrl+X")]
+    [InlineData(0x56, "Ctrl+V")]
+    public void RemoteShortcut_ClipboardHotkeysProduceAtomicControlSequence(
+        ushort virtualKey,
+        string gesture)
+    {
+        Assert.True(RemoteShortcut.TryGetClipboardHotkey(virtualKey, out RemoteShortcut? shortcut));
+        Assert.NotNull(shortcut);
+        Assert.Equal(gesture, shortcut.GestureText);
+
+        IReadOnlyList<RemoteInputEvent> events = shortcut.ToInputEvents();
+        Assert.Equal(4, events.Count);
+        Assert.Equal((0x11, true), (events[0].VirtualKey, events[0].IsDown));
+        Assert.Equal((virtualKey, true), (events[1].VirtualKey, events[1].IsDown));
+        Assert.Equal((virtualKey, false), (events[2].VirtualKey, events[2].IsDown));
+        Assert.Equal((0x11, false), (events[3].VirtualKey, events[3].IsDown));
+    }
+
+    [Theory]
     [InlineData(0x2E, ShortcutModifiers.Control | ShortcutModifiers.Alt)]
     [InlineData(0x73, ShortcutModifiers.Alt)]
     [InlineData(0x1B, ShortcutModifiers.Control)]

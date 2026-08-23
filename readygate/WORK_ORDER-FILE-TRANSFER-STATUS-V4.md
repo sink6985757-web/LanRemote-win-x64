@@ -4,7 +4,7 @@
 - confirmed_by: Yulin
 - confirmed_at: 2026-08-23
 - baseline: `f97586d` (v3)
-- target: protocol v4 local test candidate
+- target: protocol v4 / package v4.1 local test candidate
 
 ## 目標
 
@@ -36,3 +36,10 @@
 
 - GitHub push／release／公開發布。
 - 安裝服務、修改防火牆／Windows 安全性原則。
+
+## Cycle 3 使用者實測修正（2026-08-23）
+
+- Toolbar 的「遠端 Ctrl+C／X／V」改為開關，預設開啟。
+- 開啟時，控制端直接按 `Ctrl+C`、`Ctrl+X`、`Ctrl+V` 操作被控端目前作用中程式與被控端自己的剪貼簿，不需要按 Toolbar button。
+- 關閉時，本機剪貼簿若包含檔案，`Ctrl+V` 恢復使用既有跨機檔案上傳；拖放與檔案傳輸視窗不受影響。
+- 此修正只傳送明確的鍵盤快捷鍵，不新增背景文字／圖片剪貼簿讀取、輪詢或持續同步。

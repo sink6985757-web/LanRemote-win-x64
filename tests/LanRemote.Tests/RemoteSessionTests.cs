@@ -1,5 +1,6 @@
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using LanRemote.Core;
 using LanRemote.Protocol;
 
@@ -51,7 +52,7 @@ public sealed class RemoteSessionTests
         VideoFramePayload frame = await frameReceived.Task.WaitAsync(timeout.Token);
         RemoteInputEvent expectedInput = new(RemoteInputKind.Key, IsDown: true, VirtualKey: 0x41);
         await controller.SendInputAsync(expectedInput, timeout.Token);
-        RemoteInputEvent actualInput = await input.NextInput.Task.WaitAsync(timeout.Token);
+        RemoteInputEvent actualInput = await input.ReadAsync(timeout.Token);
 
         Assert.NotNull(hostPairingCode);
         Assert.Matches("^[0-9]{6}$", hostPairingCode);
@@ -61,6 +62,15 @@ public sealed class RemoteSessionTests
         Assert.Equal(expectedInput, actualInput);
         Assert.Equal(QualityProfiles.Smooth, screen.CurrentQualityProfile);
         Assert.Equal(QualityProfiles.Smooth, controller.CurrentQualityProfile);
+
+        await controller.SendShortcutAsync(RemoteShortcut.ControlPaste, timeout.Token);
+        List<RemoteInputEvent> clipboardInputs = [];
+        for (int index = 0; index < 4; index++)
+        {
+            clipboardInputs.Add(await input.ReadAsync(timeout.Token));
+        }
+
+        Assert.Equal(RemoteShortcut.ControlPaste.ToInputEvents(), clipboardInputs);
 
         TaskCompletionSource<QualityProfile> qualityApplied = NewCompletion<QualityProfile>();
         controller.QualityProfileAppliedReceived += profile =>
@@ -300,13 +310,19 @@ public sealed class RemoteSessionTests
 
     private sealed class RecordingInputInjector : IInputInjector
     {
-        public TaskCompletionSource<RemoteInputEvent> NextInput { get; } =
-            NewCompletion<RemoteInputEvent>();
+        private readonly Channel<RemoteInputEvent> _inputs = Channel.CreateUnbounded<RemoteInputEvent>();
+
+        public async ValueTask<RemoteInputEvent> ReadAsync(CancellationToken cancellationToken) =>
+            await _inputs.Reader.ReadAsync(cancellationToken);
 
         public ValueTask InjectAsync(RemoteInputEvent inputEvent, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            NextInput.TrySetResult(inputEvent);
+            if (!_inputs.Writer.TryWrite(inputEvent))
+            {
+                throw new InvalidOperationException("無法記錄遠端輸入事件。");
+            }
+
             return ValueTask.CompletedTask;
         }
     }

@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     private bool _chromeTemporarilyRevealed;
     private bool _syncingQualityUi;
     private bool _syncingScaleUi;
+    private bool _remoteClipboardHotkeysEnabled = true;
     private QualityPreset _selectedQualityPreset = QualityPreset.Balanced;
     private RemoteScaleMode _scaleMode = RemoteScaleMode.Stretch;
     private RemoteWindowMode _remoteWindowMode = RemoteWindowMode.Windowed;
@@ -755,6 +756,9 @@ public partial class MainWindow : Window
     }
 
     private async Task SendShortcutSafelyAsync(RemoteShortcut shortcut)
+        => await SendShortcutSafelyAsync(shortcut, announce: true);
+
+    private async Task SendShortcutSafelyAsync(RemoteShortcut shortcut, bool announce)
     {
         RemoteController? controller = _controller;
         if (controller?.IsConnected != true)
@@ -766,7 +770,10 @@ public partial class MainWindow : Window
         try
         {
             await controller.SendShortcutAsync(shortcut);
-            SetStatus($"已送出 {shortcut.GestureText} 到遠端目前作用中的應用程式。");
+            if (announce)
+            {
+                SetStatus($"已送出 {shortcut.GestureText} 到遠端目前作用中的應用程式。");
+            }
         }
         catch (Exception exception) when (exception is IOException or ObjectDisposedException or ArgumentException)
         {
@@ -1078,6 +1085,37 @@ public partial class MainWindow : Window
 
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
         ModifierKeys modifiers = Keyboard.Modifiers;
+        int virtualKey = KeyInterop.VirtualKeyFromKey(key);
+        if (modifiers.HasFlag(ModifierKeys.Control) &&
+            !modifiers.HasFlag(ModifierKeys.Alt) &&
+            virtualKey is > 0 and <= ushort.MaxValue &&
+            RemoteShortcut.TryGetClipboardHotkey((ushort)virtualKey, out RemoteShortcut? clipboardShortcut))
+        {
+            if (e.IsRepeat)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (!_remoteClipboardHotkeysEnabled)
+            {
+                if (key == Key.V && _controller?.FileTransferAllowed == true && Clipboard.ContainsFileDropList())
+                {
+                    _ = UploadLocalClipboardFilesAsync();
+                }
+
+                e.Handled = true;
+                return;
+            }
+
+            if (!RemoteDisplay.IsKeyboardFocusWithin)
+            {
+                _ = SendShortcutSafelyAsync(clipboardShortcut!, announce: false);
+                e.Handled = true;
+                return;
+            }
+        }
+
         if ((key is Key.D0 or Key.NumPad0) &&
             modifiers.HasFlag(ModifierKeys.Control) &&
             modifiers.HasFlag(ModifierKeys.Alt))
@@ -1327,14 +1365,6 @@ public partial class MainWindow : Window
         }
 
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        if (key == Key.V && Keyboard.Modifiers.HasFlag(ModifierKeys.Control) &&
-            _controller.FileTransferAllowed && Clipboard.ContainsFileDropList())
-        {
-            _ = UploadLocalClipboardFilesAsync();
-            e.Handled = true;
-            return;
-        }
-
         int virtualKey = KeyInterop.VirtualKeyFromKey(key);
         if (virtualKey is > 0 and <= ushort.MaxValue)
         {
@@ -1444,10 +1474,24 @@ public partial class MainWindow : Window
         FileTransferMenuItem.IsEnabled = fileTransfer;
         ReceiveClipboardMenuItem.IsEnabled = fileTransfer;
         FileTransferToolButton.IsEnabled = fileTransfer;
-        ReceiveClipboardToolButton.IsEnabled = fileTransfer;
+        RemoteClipboardHotkeysToggle.IsEnabled = session;
         RebuildShortcutMenus();
         ModeBadge.Text = hosting ? "被控端模式" : controlling ? "控制端模式" : "尚未連線";
         UpdateStatusDisplay();
+    }
+
+    private void RemoteClipboardHotkeysToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        _remoteClipboardHotkeysEnabled = RemoteClipboardHotkeysToggle.IsChecked == true;
+        if (!IsLoaded || !_sessionViewActive)
+        {
+            return;
+        }
+
+        SetStatus(_remoteClipboardHotkeysEnabled
+            ? "遠端剪貼簿快捷鍵已開啟；Ctrl+C／X／V 會直接操作被控端。"
+            : "遠端剪貼簿快捷鍵已關閉；本機檔案 Ctrl+V 會改用跨機傳輸。");
+        RemoteDisplay.Focus();
     }
 
     private static string FormatPairingCode(string code) =>
