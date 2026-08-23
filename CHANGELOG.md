@@ -4,6 +4,9 @@
 
 ### Changed
 
+- 依 `WO-LANREMOTE-GITHUB-APACHE2-SHUTDOWN-20260823` 準備既有公開 GitHub repository 的首次 `main` source checkpoint，並登記正確 remote identity。
+- 新增 Apache License 2.0 官方完整原文與 README `Apache-2.0` 授權說明；第三方套件維持各自授權。
+- 公開前移除交接文件內的本機電腦名稱；ignored 測試 ZIP、build outputs 與雙機 evidence 不納入 GitHub source checkpoint。
 - 建立專案生命週期四檔與 portable manifest。
 - 記錄區網雙向遠端控制的 MVP、模組邊界與安全限制。
 - 初始化獨立本機 Git `main` 與 .NET 10 solution。
@@ -32,9 +35,30 @@
 - 移除控制端游標光圈，將青色／白邊箭頭縮小約 20%，繼續不顯示文字標籤。
 - 將 Toolbar「遠端剪貼簿」改成預設開啟的 `Ctrl+C／X／V` 直通開關；開啟時不再攔截本機檔案剪貼簿的 `Ctrl+V`，關閉後才恢復跨機檔案貼上。
 - 快捷鍵開關只傳送明確鍵盤組合，不新增背景文字／圖片剪貼簿讀取或持續同步；失去遠端畫面焦點時仍以原子按鍵序列送到被控端。
+- 升級協定為 v5，以配對核准、session-only 權限、256 KiB 分塊、64 MB 上限與 SHA-256 驗證加入真正的 Unicode 純文字剪貼簿同步。
+- Toolbar 將 `C/X/V 直通` 改為「剪貼簿」三模式選單：關閉、主控到被控單向、雙向（預設）；檔案與資料夾繼續只走既有檔案傳輸。
+- 加入 Windows `WM_CLIPBOARDUPDATE` 事件監聽、latest-value 緩衝與回送抑制；只在已核准且仍連線的 session 讀取純文字，關閉／斷線／結束時清除同步快取但保留 OS 剪貼簿。
+- 雙機證據腳本升級為 schema v4，分別記錄兩個文字剪貼簿方向與三模式結果。
+- 發包腳本在 Google Drive 目錄改採「先將舊包改名為可回復 previous 目錄、再建立新包」，成功後才嘗試限次清理，避免同步鎖定讓新版封裝中途失去舊包。
+- 依 `WO-LANREMOTE-V6-BIDIRECTIONAL-FILE-SESSION-20260823` 升級協定為 v6，讓 controller 與 host 共用 `IFileTransferSession`，雙方皆可主動 browse、upload、download 與 cancel。
+- 配對加入發起端「要求啟用雙向檔案傳輸」；只有發起端要求與接收端 pairing approval 同時成立時，權限才在當次 session 生效。
+- 配對後兩端都進入同一個工作階段 shell，預設顯示概覽，並列「遠端控制」與「檔案傳輸」分頁；既有獨立傳輸視窗改為主程式內嵌分頁，不必先開啟遠端畫面。
+- 檔案分頁沿用原本左右配置，將傳送與接收拆成獨立狀態／取消，可同時反向執行並在切換分頁後繼續背景傳輸；Toolbar 保留進度與取消入口。
+- 同名處理新增保留兩者（預設）、覆寫與略過；覆寫仍先使用 transfer-specific partial、通過 SHA-256 後才替換，既有受保護路徑與 reparse 防線不變。
+- 雙機證據腳本升級為 schema v5，新增 session tabs、不進入遠端桌面傳檔、兩端主動發起、同時雙向與三種衝突模式欄位。
+- 依 `WO-LANREMOTE-V431-REMOTE-DISPLAY-FIX-20260823` 修正 v4.3 UI 路由回歸：連線成功後不再停在概覽，也不再因未選取遠端控制分頁而丟棄所有畫面幀。
+- 移除工作階段概覽、遠端控制與檔案傳輸 Tab；控制端配對成功後直接顯示遠端桌面，被控端保留簡潔受控狀態，檔案面板只從 Toolbar「檔案」進入。
+- 檔案面板加入「返回桌面」且不取消背景傳輸；開啟面板期間仍持續緩衝與呈現最新遠端畫面。
+- 初始深色介面改用明確高對比文字／核取方塊樣式；控制端加入 15 秒 TCP／TLS／初始協定逾時、120 秒人工配對核准逾時及統一「未連線成功」對話框。
+- 雙機證據腳本升級為 schema v6，改記錄直接遠端畫面、無 Tab、Toolbar 檔案入口、連線失敗對話框與 launcher 對比。
 
 ### Validation
 
+- GitHub source checkpoint 預檢：目標 repository 已存在、為 public／empty，登入帳號具有 `ADMIN`；本機 `main` 無既有 remote／upstream，符合首次非 force bootstrap push 範圍。
+- Apache `LICENSE` 與 `https://www.apache.org/licenses/LICENSE-2.0.txt` 以 LF 正規化逐字比較：`PASS`（11,357 characters）。
+- 本輪公開掃描：secret pattern 0 hits、本機電腦名稱 0 hits、裝置絕對路徑 0 hits；83 個初始 publishable files 中沒有超過 100 MB 的項目。
+- GitHub checkpoint 前重新驗證：Debug 61/61、Release 61/61、Release build 0 warning／0 error、`dotnet format --verify-no-changes` PASS、四個 PowerShell scripts parser 0 error。
+- 六專案 `dotnet list package --vulnerable --include-transitive`：NuGet 目前來源未回報已知弱點套件。
 - 初始化檔案已使用 UTF-8 回讀。
 - Portable manifest 已通過目前本機 Full Core validator 的結構檢查。
 - Runtime skills 與本機發行來源的 SHA-256 一致；發行來源變更尚未進入 manifest 所指的不可變 commit，因此權威版本驗證為 `PARTIAL`。
@@ -58,9 +82,28 @@
 - v4.1 GUI smoke：Toolbar 可直接看見 `C/X/V 直通` 與 `⇄ 檔案`，開關在 XAML 預設為開啟；未啟動 host、未操作 Windows Firewall 安全提示。
 - v4.1 self-contained ZIP 依 source revision `5a2ce98e420bedb0df060e86afabb2a101f5afd0` 建立；136,070,962 bytes，SHA-256 `B55C41650F77749A820381B6AAA61CC6E6EBC1338B7E2CFAAFBAD793A36F3247`。
 - v4.1 ZIP 回讀：743 entries、743 unique、0 duplicate；9/9 manifest hash PASS，內嵌 README 可回讀 v4.1 與預設開啟的快捷鍵開關；EXE／服務均 `NotSigned`。
+- v4.2 `dotnet test --configuration Release`：53/53 通過；涵蓋跨 chunk Unicode、順序與 64 MB 防線、SHA-256、每次配對授權、控制端到被控端、被控端到控制端、單向與關閉模式。
+- v4.2 Debug／Release build 為 0 warning／0 error；`dotnet format --verify-no-changes`、四個 PowerShell 腳本 parser 與六專案 NuGet vulnerability audit 通過。
+- v4.2 GUI smoke 以 Computer Use 回讀主視窗，固定顯示短名稱「剪貼簿」且預設提示雙向；依安全規則未操作 Windows Firewall 或配對權限視窗。
+- v4.2 self-contained ZIP 由本機工作樹（基準 HEAD `ca147365bf4a2e7dea951781ae23645399843539`）建立；136,087,331 bytes，SHA-256 `6473EC40AA1E2B12412B7A6A0DB91E3E26971B1A63C3BB816C25BE979CA080F4`。
+- v4.2 ZIP 回讀：743 entries、743 unique、0 duplicate；9/9 manifest hash PASS，內嵌 README 可回讀 v4.2、協定 v5 與單向／雙向剪貼簿；EXE／服務均 `NotSigned`。
+- Google Drive 封裝重建後保留一個 0-entry 的 previous 空目錄；其中沒有 EXE 或資料，新的 v4.2 目錄與 ZIP 已獨立完整回讀。
+- v4.3 `dotnet test --configuration Release`：57/57 通過；同一 TLS session 由兩端同時主動上傳、host 主動 browse／download、雙重授權缺一拒絕、overwrite／skip，以及既有 auto-rename／resume 均通過。
+- v4.3 Debug／Release build：六專案 0 warning／0 error；`dotnet format --verify-no-changes`、四個 PowerShell 腳本 parser 與六專案 NuGet vulnerability audit 通過。
+- v4.3 GUI smoke 以 Computer Use 回讀封裝版主視窗，可見發起端「要求啟用雙向檔案傳輸」與 Toolbar「開啟獨立檔案傳輸分頁」；依安全規則未操作 Windows Firewall 或配對權限視窗。
+- v4.3 self-contained ZIP 由本機工作樹（基準 HEAD `ca147365bf4a2e7dea951781ae23645399843539`）建立；136,109,605 bytes，SHA-256 `A515A6E7F5D4609404083CEBA28F80CEBB87FC17368CF58127BE241CC5872819`。
+- v4.3 ZIP 回讀：743 entries、743 unique、0 duplicate；9/9 manifest hash PASS，內嵌 README 可回讀 v4.3、協定 v6 與不必先開啟遠端桌面；EXE／服務均 `NotSigned`。
+- v4.3.1 Debug／Release tests：61/61 PASS；新增 TLS 無回應逾時、獨立配對核准逾時，以及無 Tab／畫面接收不依賴分頁的 UI source-contract 回歸。
+- v4.3.1 Debug／Release build：六專案 0 warning／0 error；`dotnet format --verify-no-changes`、四個 PowerShell 腳本 parser 與六專案 NuGet vulnerability audit 通過。
+- v4.3.1 封裝版 GUI smoke：實際回讀高對比 launcher、Toolbar 唯一「檔案」面板入口與無 session Tab；輸入 `bad-key` 後實際顯示「未連線成功」對話框。未啟動 host、未配對、未操作 Windows Firewall。
+- v4.3.1 self-contained ZIP 由本機工作樹（基準 HEAD `ca147365bf4a2e7dea951781ae23645399843539`）建立；136,112,419 bytes，SHA-256 `A9954D63939A6580DCE98E4589041D36D33367525F791D33138372B303F083F2`。
+- v4.3.1 ZIP 回讀：743 entries、743 unique、0 duplicate、9/9 manifest hash PASS；內嵌 README 可回讀 v4.3.1、協定 v6 與無 Tab 介面；EXE／服務均 `NotSigned`。
 
 ### Delivery
 
 - GitHub：`LOCAL_ONLY/NOT_CONFIGURED`
 - ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`，Cycle 3）：正式發布為 `NOT_READY`；v4.1 ZIP 只供自有兩機測試。既有檔案傳輸由 Yulin 回報正常，新版快捷鍵直通與完整雙向回歸仍待 schema v3 證據。
+- ReadyGate（`WO-LANREMOTE-V5-TEXT-CLIPBOARD-20260823`）：本機功能、53 項測試、GUI smoke 與 ZIP 完整性已驗證；正式發布仍為 `NOT_READY`，等待 Windows 10／11 兩個控制方向的 schema v4 實機證據。
+- ReadyGate（`WO-LANREMOTE-V6-BIDIRECTIONAL-FILE-SESSION-20260823`）：本機功能、57 項 Release 測試、封裝版 GUI smoke 與 ZIP 完整性已驗證；正式發布仍為 `NOT_READY`，等待 Windows 10／11 schema v5 兩端主動傳輸與完整回歸證據。
+- ReadyGate（`WO-LANREMOTE-V431-REMOTE-DISPLAY-FIX-20260823`）：本機程式、61 項 Release 測試、封裝版 UI 與 ZIP 完整性已驗證；正式發布仍為 `NOT_READY`，等待 Windows 11 25H2／Windows 10 22H2 schema v6 直接顯示遠端畫面與完整回歸證據。
 - 原 MVP 的 WGC + Media Foundation H.264 效能目標仍未完成，保留為後續獨立工作項目。

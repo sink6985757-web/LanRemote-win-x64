@@ -6,6 +6,10 @@ public sealed record PairingRequest(
     IPEndPoint RemoteEndpoint,
     string DeviceName,
     string OperatingSystem,
-    string PairingCode);
+    string PairingCode,
+    bool FileTransferRequested = true);
 
-public sealed record PairingApproval(bool Accepted, bool FileTransferAllowed);
+public sealed record PairingApproval(
+    bool Accepted,
+    bool FileTransferAllowed,
+    bool ClipboardTextAllowed = false);

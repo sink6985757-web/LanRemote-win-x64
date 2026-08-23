@@ -1,7 +1,7 @@
 <Window x:Class="LanRemote.App.PairingApprovalWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="允許本次遠端控制？" Width="520" Height="430"
+        Title="允許本次遠端控制？" Width="520" Height="500"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Background="#0B1220" Foreground="#E5EDF8" ShowInTaskbar="False">
     <Grid Margin="24">
@@ -33,7 +33,12 @@
                 <CheckBox x:Name="AllowFileTransferCheckBox" FontWeight="SemiBold"
                           Content="允許本次連線傳輸檔案（預設關閉）" />
                 <TextBlock Margin="24,7,0,0" Foreground="#9FC3D2" TextWrapping="Wrap"
-                           Text="開啟後，控制端可瀏覽可存取的本機資料夾並雙向傳輸；斷線後授權自動失效。" />
+                           Text="雙方同意後，兩臺電腦都可主動瀏覽對方可存取的資料夾並傳輸；斷線後授權自動失效。" />
+                <CheckBox x:Name="AllowClipboardTextCheckBox" Margin="0,16,0,0"
+                          FontWeight="SemiBold" IsChecked="True"
+                          Content="允許本次連線同步文字剪貼簿（預設開啟）" />
+                <TextBlock Margin="24,7,0,0" Foreground="#9FC3D2" TextWrapping="Wrap"
+                           Text="只同步純文字，不同步圖片、格式或檔案；控制端可選擇單向、雙向或關閉。" />
             </StackPanel>
         </Border>
 

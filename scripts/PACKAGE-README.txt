@@ -3,7 +3,7 @@ LanRemote 區網雙向控制 MVP
 
 這是一份未簽章的本機測試包，不是公開發布版本。
 
-重要：本包版本為 v4.1、使用協定 v4；兩臺電腦都必須換成這一份新版。舊版不能和新版混用。
+重要：本包版本為 v4.3.1、使用協定 v6；兩臺電腦都必須換成這一份新版。舊版不能和新版混用。
 
 適用情境
 --------
@@ -20,7 +20,8 @@ LanRemote 區網雙向控制 MVP
 
 連線視窗與畫面模式
 ------------------
-- 程式先顯示連線介面；核准後，同一個視窗會切換成遠端桌面。
+- 程式先顯示高對比連線介面；核准後控制端直接進入遠端桌面，不再顯示工作階段、遠端控制或檔案傳輸標籤頁。
+- TCP、TLS 與初始協定交握最多等待 15 秒；配對人工核准獨立保留 120 秒。錯誤位址、拒絕或逾時會顯示「未連線成功」。
 - 預設為可調整大小的視窗化與「拉伸滿版」，調整視窗時畫面會自動填滿。
 - 縮放可選「符合視窗」（保留比例，可能有黑邊）、「拉伸滿版」（預設、無黑邊）或「裁切滿版」（保留比例、裁掉邊緣）。
 - 頂部工具列可選「視窗化」、「最大化」與「全螢幕」；F11 可切換全螢幕，Esc 可退出全螢幕。
@@ -41,10 +42,12 @@ Toolbar 狀態
 - 簡易固定顯示連線、實際 FPS 與傳輸進度；詳細會多一條薄診斷列。
 - 底部長駐狀態列已移除；錯誤以短暫提示顯示。
 
-快捷鍵與游標
-------------
-- Toolbar「遠端 Ctrl+C／X／V」預設開啟；直接在控制端按快捷鍵即可操作被控端目前程式及被控端自己的剪貼簿。
-- 關閉此開關後，本機剪貼簿若含檔案，Ctrl+V 會改走跨機檔案上傳；這不是背景文字／圖片剪貼簿同步。
+文字剪貼簿、快捷鍵與游標
+------------------------
+- 被控端每次核准配對時可允許純文字剪貼簿；預設勾選，但仍須由本人按下允許。
+- Toolbar「剪貼簿」可選關閉、單向（主控到被控）或雙向，預設雙向。
+- 只要在一端複製／剪下純文字，就能在另一端直接按 Ctrl+V；圖片、HTML、RTF、檔案及資料夾不會背景同步。
+- 文字以 256 KB 分塊、SHA-256 驗證，UTF-8 上限 64 MB；關閉、斷線或結束程式會清除同步快取，但不清除 Windows 原生剪貼簿。
 - 工具列有 Ctrl+Alt+0，可直接送到遠端目前作用中的應用程式。
 - 「自訂按鍵」選單可新增、送出與移除最多 20 組本機快捷鍵；設定保存在目前 Windows 使用者的 LocalAppData。
 - Windows 鍵、Ctrl+Alt+Delete、Alt+F4、Ctrl+Escape 不接受為自訂項目。
@@ -52,13 +55,15 @@ Toolbar 狀態
 
 檔案傳輸
 --------
-1. 被控端核准配對時，如本次需傳檔，勾選「允許本次連線傳輸檔案」；斷線後授權自動失效。
-2. 可把本機檔案／資料夾拖進遠端畫面；若要在本機檔案總管複製後以 Ctrl+V 跨機上傳，先關閉 Toolbar「遠端 Ctrl+C／X／V」。
-3. 拖放時畫面會顯示遠端桌面或目前檔案總管路徑；無法靠譜辨識時，會改開傳輸視窗讓你選路徑。
-4. File > 檔案傳輸或 Toolbar「檔案傳輸」可選本機來源、瀏覽遠端磁碟／資料夾，並上傳或下載。
-5. 遠端檔案總管複製檔案後，選 File >「接收遠端剪貼簿檔案」，再選本機接收路徑。
-6. 同名檔自動改為「檔名 (1)」，不覆寫；單檔上限 2 GB、單批 10 GB，完成後驗證 SHA-256。
-7. 取消時可選擇刪除 partial，或保留供同一批路徑下次續傳。
+1. 發起端連線前勾選「要求啟用雙向檔案傳輸」，接收端配對時再勾選允許；兩者都同意才會啟用，斷線後授權自動失效。
+2. 可把本機檔案／資料夾拖進遠端畫面；本機檔案總管複製檔案後，也可直接在遠端畫面以 Ctrl+V 走既有跨機上傳，不受文字剪貼簿模式影響。
+3. 任一端都可從頂端 Toolbar「檔案」開啟同一主視窗內的檔案面板，選本機來源、瀏覽對方磁碟／資料夾並主動傳送或接收。
+4. 傳送與接收各有獨立狀態列，可以同時執行；返回遠端桌面後仍在背景繼續，Toolbar 會顯示進度與取消入口。
+5. 拖放時畫面會顯示遠端桌面或目前檔案總管路徑；無法可靠辨識時，會開啟 Toolbar 使用的檔案面板讓你選路徑。
+6. 遠端檔案總管複製檔案後，選 File >「接收遠端剪貼簿檔案」，再選本機接收路徑。
+7. 同名預設保留兩者並自動改為「檔名 (1)」；衝突提示也可明確選擇覆寫或略過。
+8. 單檔上限 2 GB、單批 10 GB，完成後驗證 SHA-256。
+9. 取消時可選擇刪除 partial，或保留供同一批路徑下次續傳。
 
 啟用 Ctrl+Alt+Delete（選用）
 ---------------------------
@@ -77,7 +82,7 @@ Windows 11 控制 Windows 10
 --------------------------
 1. Windows 10：按「開始等候」，記下顯示的 IPv4:45873。
 2. Windows 11：在「控制另一臺電腦」輸入該位址，按「連線並核對」。
-3. 比對兩端六位數配對碼完全相同；本次要測檔案傳輸時勾選允許檔案傳輸，再核准。
+3. 比對兩端六位數配對碼完全相同；發起端與接收端兩個檔案傳輸選項都開啟後再核准。
 4. 在遠端畫面內按一下，再測試滑鼠、滾輪與鍵盤。
 5. 任一端需要停止時，按「立即斷線」或「停止被控端」。
 
@@ -97,9 +102,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\New-TwoPcEvidence.ps1 
   -Direction Windows11-controls-Windows10 -Result PASS -PeerComputer 另一臺名稱 `
   -DurationSeconds 300 -ObservedFps 48 -P95InteractionLatencyMs 180 `
   -PairingCodesMatched $true -MousePassed $true -KeyboardPassed $true `
-  -RemoteClipboardHotkeysPassed $true `
+  -ClipboardControllerToHostPassed $true -ClipboardHostToControllerPassed $true `
+  -ClipboardModesPassed $true `
   -ImmediateDisconnectPassed $true -DragDropUploadPassed $true `
   -ToolbarUploadPassed $true -ToolbarDownloadPassed $true `
+  -RemoteDesktopDisplayedPassed $true -TabsRemovedPassed $true `
+  -ToolbarFileEntryPassed $true -ConnectionTimeoutDialogPassed $true `
+  -LauncherContrastPassed $true -FileTransferWithoutRemoteDesktopPassed $true `
+  -ControllerInitiatedFileTransferPassed $true -HostInitiatedFileTransferPassed $true `
+  -ConcurrentBidirectionalFileTransferPassed $true -ConflictModesPassed $true `
   -FileClipboardPassed $true -ResumePassed $true -StatusModesPassed $true `
   -CursorPassed $true -Notes "主要螢幕與雙向傳輸測試"
 
@@ -108,10 +119,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\New-TwoPcEvidence.ps1 
 
 已知限制
 --------
-- 一個 session 只允許單方向控制；必須斷線後交換角色。
+- 一個 session 只允許單方向遠端控制；檔案傳輸則在已授權的同一 session 內允許雙方主動發起。
 - 目前以 GDI/JPEG 相容模式傳畫面；WGC + H.264 效能基線尚未完成。
 - 三種模式的 fps 是上限，不是對所有硬體與網路保證的實測值；GDI/JPEG 可能無法在較慢電腦達到上限。
-- 只擷取主要螢幕；沒有多螢幕、音訊、文字／圖片剪貼簿或持續資料夾同步。
+- 只擷取主要螢幕；沒有多螢幕、音訊、圖片／格式化剪貼簿、剪貼簿歷史或持續資料夾同步。
 - 檔案傳輸不會寫入 Windows、Program Files、ProgramData 或 Startup，不跟隨 reparse point／symlink／junction，不接受 UNC／ADS 或遠端刪除／執行要求。
 - 不支援網際網路 relay、自動探索或無人值守連線。
 - 一般鍵鼠不會繞過 UAC 或較高權限視窗（Windows UIPI 限制）。Ctrl+Alt+Delete 只經固定用途 SAS 服務，且是否切換安全桌面仍由 Windows 原則決定。

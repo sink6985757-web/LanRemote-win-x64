@@ -1,4 +1,6 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using LanRemote.Core;
 using LanRemote.Protocol;
 
@@ -9,8 +11,8 @@ public sealed class ProtocolTests
     [Fact]
     public async Task FramedStream_RoundTripsPacket()
     {
-        Assert.Equal(4, ProtocolConstants.Version);
-        Assert.True(ProtocolConstants.Magic.SequenceEqual("LRM4"u8));
+        Assert.Equal(6, ProtocolConstants.Version);
+        Assert.True(ProtocolConstants.Magic.SequenceEqual("LRM6"u8));
         using MemoryStream transport = new();
         await using FramedMessageStream messages = new(transport);
         byte[] expected = [1, 3, 5, 7, 9];
@@ -21,6 +23,47 @@ public sealed class ProtocolTests
 
         Assert.Equal(MessageType.Ping, actual.Type);
         Assert.Equal(expected, actual.Payload);
+    }
+
+    [Fact]
+    public void ClipboardTextReceiver_ReassemblesChunkedUnicodeAndVerifiesHash()
+    {
+        string expected = new string('A', ProtocolConstants.ClipboardTextChunkLength + 17) + "雙向剪貼簿";
+        byte[] bytes = Encoding.UTF8.GetBytes(expected);
+        Guid updateId = Guid.NewGuid();
+        ClipboardTextReceiver receiver = new();
+        receiver.Begin(new ClipboardTextOffer(
+            updateId,
+            bytes.Length,
+            Convert.ToHexString(SHA256.HashData(bytes))));
+
+        int firstLength = ProtocolConstants.ClipboardTextChunkLength;
+        receiver.Append(new ClipboardTextChunkPayload(updateId, 0, bytes[..firstLength]));
+        receiver.Append(new ClipboardTextChunkPayload(updateId, firstLength, bytes[firstLength..]));
+        string actual = receiver.Complete(new ClipboardTextComplete(updateId));
+
+        Assert.Equal(expected, actual);
+        Assert.False(receiver.HasPendingUpdate);
+    }
+
+    [Fact]
+    public void ClipboardTextReceiver_RejectsOversizeAndOutOfOrderUpdates()
+    {
+        ClipboardTextReceiver receiver = new();
+        Assert.Throws<ProtocolException>(() => receiver.Begin(new ClipboardTextOffer(
+            Guid.NewGuid(),
+            ProtocolConstants.MaxClipboardTextLength + 1,
+            new string('0', 64))));
+
+        byte[] bytes = Encoding.UTF8.GetBytes("ordered");
+        Guid updateId = Guid.NewGuid();
+        receiver.Begin(new ClipboardTextOffer(
+            updateId,
+            bytes.Length,
+            Convert.ToHexString(SHA256.HashData(bytes))));
+        Assert.Throws<ProtocolException>(() => receiver.Append(
+            new ClipboardTextChunkPayload(updateId, 1, bytes)));
+        receiver.Reset();
     }
 
     [Theory]

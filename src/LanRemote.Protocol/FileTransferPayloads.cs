@@ -12,6 +12,13 @@ public enum FileTransferDirection
     Download = 2,
 }
 
+public enum FileConflictBehavior
+{
+    KeepBoth = 1,
+    Overwrite = 2,
+    Skip = 3,
+}
+
 public sealed record FileTransferEntry(
     int Index,
     string RelativePath,
@@ -54,7 +61,8 @@ public sealed record FileUploadOffer(
     string DestinationPath,
     IReadOnlyList<FileTransferEntry> Entries,
     long TotalBytes,
-    string ManifestSha256);
+    string ManifestSha256,
+    FileConflictBehavior ConflictBehavior = FileConflictBehavior.KeepBoth);
 
 public sealed record FileTransferDecision(
     Guid TransferId,

@@ -35,4 +35,8 @@ public enum MessageType : byte
     FileDownloadComplete = 31,
     FileDownloadResult = 32,
     FileTransferCancel = 33,
+    ClipboardModeChanged = 34,
+    ClipboardTextOffer = 35,
+    ClipboardTextChunk = 36,
+    ClipboardTextComplete = 37,
 }

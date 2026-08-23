@@ -5,7 +5,8 @@ public sealed record ClientHello(
     string DeviceName,
     string OperatingSystem,
     string NonceBase64,
-    QualityPreset InitialQualityPreset);
+    QualityPreset InitialQualityPreset,
+    bool FileTransferRequested = true);
 
 public sealed record ServerHello(
     int ProtocolVersion,
@@ -16,7 +17,8 @@ public sealed record ServerHello(
 public sealed record SessionDecision(
     bool Accepted,
     string? Reason,
-    bool FileTransferAllowed = false);
+    bool FileTransferAllowed = false,
+    bool ClipboardTextAllowed = false);
 
 public sealed record SessionReady(
     Guid SessionId,

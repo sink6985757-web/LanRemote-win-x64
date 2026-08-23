@@ -30,7 +30,13 @@ param(
     [bool]$KeyboardPassed,
 
     [Parameter(Mandatory)]
-    [bool]$RemoteClipboardHotkeysPassed,
+    [bool]$ClipboardControllerToHostPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ClipboardHostToControllerPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ClipboardModesPassed,
 
     [Parameter(Mandatory)]
     [bool]$ImmediateDisconnectPassed,
@@ -43,6 +49,36 @@ param(
 
     [Parameter(Mandatory)]
     [bool]$ToolbarDownloadPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$RemoteDesktopDisplayedPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$TabsRemovedPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ToolbarFileEntryPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ConnectionTimeoutDialogPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$LauncherContrastPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$FileTransferWithoutRemoteDesktopPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ControllerInitiatedFileTransferPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$HostInitiatedFileTransferPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ConcurrentBidirectionalFileTransferPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$ConflictModesPassed,
 
     [Parameter(Mandatory)]
     [bool]$FileClipboardPassed,
@@ -70,7 +106,7 @@ if ([string]::IsNullOrWhiteSpace($PackageDirectory)) {
         $PackageDirectory = $PSScriptRoot
     }
     else {
-        $PackageDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.1-win-x64"
+        $PackageDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.3.1-win-x64"
     }
 }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -97,7 +133,7 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $outputFile = Join-Path $OutputDirectory ("{0}-{1}-{2}.json" -f $timestamp, $safeComputerName, $Direction)
 
 $evidence = [ordered]@{
-    schemaVersion = 3
+    schemaVersion = 6
     recordedAt = (Get-Date).ToString("o")
     computerName = $env:COMPUTERNAME
     peerComputer = $PeerComputer
@@ -121,11 +157,23 @@ $evidence = [ordered]@{
         pairingCodesMatched = $PairingCodesMatched
         mousePassed = $MousePassed
         keyboardPassed = $KeyboardPassed
-        remoteClipboardHotkeysPassed = $RemoteClipboardHotkeysPassed
+        clipboardControllerToHostPassed = $ClipboardControllerToHostPassed
+        clipboardHostToControllerPassed = $ClipboardHostToControllerPassed
+        clipboardModesPassed = $ClipboardModesPassed
         immediateDisconnectPassed = $ImmediateDisconnectPassed
         dragDropUploadPassed = $DragDropUploadPassed
         toolbarUploadPassed = $ToolbarUploadPassed
         toolbarDownloadPassed = $ToolbarDownloadPassed
+        remoteDesktopDisplayedPassed = $RemoteDesktopDisplayedPassed
+        tabsRemovedPassed = $TabsRemovedPassed
+        toolbarFileEntryPassed = $ToolbarFileEntryPassed
+        connectionTimeoutDialogPassed = $ConnectionTimeoutDialogPassed
+        launcherContrastPassed = $LauncherContrastPassed
+        fileTransferWithoutRemoteDesktopPassed = $FileTransferWithoutRemoteDesktopPassed
+        controllerInitiatedFileTransferPassed = $ControllerInitiatedFileTransferPassed
+        hostInitiatedFileTransferPassed = $HostInitiatedFileTransferPassed
+        concurrentBidirectionalFileTransferPassed = $ConcurrentBidirectionalFileTransferPassed
+        conflictModesPassed = $ConflictModesPassed
         fileClipboardPassed = $FileClipboardPassed
         resumePassed = $ResumePassed
         statusModesPassed = $StatusModesPassed

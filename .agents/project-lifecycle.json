@@ -21,7 +21,7 @@
     "project_root": "."
   },
   "project": {
-    "github_repository": "NOT_CONFIGURED/NOT_CONFIGURED",
+    "github_repository": "sink6985757-web/LanRemote-win-x64",
     "remote": "origin",
     "default_branch": "main",
     "project_kind": "code"
@@ -52,6 +52,7 @@
       ".agents/project-lifecycle.json",
       "AGENTS.md",
       "README.md",
+      "LICENSE",
       "CHANGELOG.md",
       "handoff.md",
       ".gitignore",

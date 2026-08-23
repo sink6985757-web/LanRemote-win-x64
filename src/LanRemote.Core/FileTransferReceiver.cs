@@ -27,11 +27,23 @@ public sealed class FileTransferReceiver
             offer.Entries,
             offer.TotalBytes,
             offer.ManifestSha256,
+            offer.ConflictBehavior,
             cancellationToken);
 
     public Task<FileTransferDecision> AcceptDownloadAsync(
         FileDownloadOffer offer,
         string destinationPath,
+        CancellationToken cancellationToken = default) =>
+        AcceptDownloadAsync(
+            offer,
+            destinationPath,
+            FileConflictBehavior.KeepBoth,
+            cancellationToken);
+
+    public Task<FileTransferDecision> AcceptDownloadAsync(
+        FileDownloadOffer offer,
+        string destinationPath,
+        FileConflictBehavior conflictBehavior,
         CancellationToken cancellationToken = default) =>
         AcceptAsync(
             offer.TransferId,
@@ -39,6 +51,7 @@ public sealed class FileTransferReceiver
             offer.Entries,
             offer.TotalBytes,
             offer.ManifestSha256,
+            conflictBehavior,
             cancellationToken);
 
     public async Task<FileTransferProgress> ReceiveChunkAsync(
@@ -52,7 +65,9 @@ public sealed class FileTransferReceiver
             ActiveTransfer transfer = GetActive(chunk.TransferId);
             FileTransferEntry entry = transfer.EntriesByIndex.GetValueOrDefault(chunk.EntryIndex)
                 ?? throw new InvalidDataException("File chunk references an unknown entry.");
-            if (entry.Kind != FileTransferEntryKind.File || transfer.State.CompletedIndices.Contains(entry.Index))
+            if (entry.Kind != FileTransferEntryKind.File ||
+                transfer.State.CompletedIndices.Contains(entry.Index) ||
+                transfer.SkippedIndices.Contains(entry.Index))
             {
                 throw new InvalidDataException("File chunk references a completed or non-file entry.");
             }
@@ -103,6 +118,11 @@ public sealed class FileTransferReceiver
             foreach (FileTransferEntry entry in transfer.Entries.OrderBy(item => item.Index))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (transfer.SkippedIndices.Contains(entry.Index))
+                {
+                    continue;
+                }
+
                 string finalPath = transfer.State.ResolvedPaths[entry.Index];
                 if (entry.Kind == FileTransferEntryKind.Directory)
                 {
@@ -138,12 +158,24 @@ public sealed class FileTransferReceiver
                     }
                 }
 
-                if (File.Exists(finalPath) || Directory.Exists(finalPath))
+                if (transfer.State.ConflictBehavior == FileConflictBehavior.Overwrite)
                 {
-                    throw new IOException($"目的地在傳輸期間出現同名項目，未覆寫：{finalPath}");
-                }
+                    if (Directory.Exists(finalPath))
+                    {
+                        throw new IOException($"目的地是資料夾，無法用檔案覆寫：{finalPath}");
+                    }
 
-                File.Move(partialPath, finalPath);
+                    File.Move(partialPath, finalPath, overwrite: true);
+                }
+                else
+                {
+                    if (File.Exists(finalPath) || Directory.Exists(finalPath))
+                    {
+                        throw new IOException($"目的地在傳輸期間出現同名項目，未覆寫：{finalPath}");
+                    }
+
+                    File.Move(partialPath, finalPath);
+                }
                 transfer.State.CompletedIndices.Add(entry.Index);
                 await SaveStateAsync(transfer.State, cancellationToken).ConfigureAwait(false);
             }
@@ -184,6 +216,7 @@ public sealed class FileTransferReceiver
 
             foreach (FileTransferEntry entry in transfer.Entries.Where(
                          item => item.Kind == FileTransferEntryKind.File &&
+                                 !transfer.SkippedIndices.Contains(item.Index) &&
                                  !transfer.State.CompletedIndices.Contains(item.Index)))
             {
                 string finalPath = transfer.State.ResolvedPaths[entry.Index];
@@ -221,6 +254,7 @@ public sealed class FileTransferReceiver
         IReadOnlyList<FileTransferEntry> entries,
         long totalBytes,
         string manifestSha256,
+        FileConflictBehavior conflictBehavior,
         CancellationToken cancellationToken)
     {
         if (transferId == Guid.Empty)
@@ -238,17 +272,29 @@ public sealed class FileTransferReceiver
 
             try
             {
+                if (!Enum.IsDefined(conflictBehavior))
+                {
+                    return Rejected(transferId, "同名檔案處理模式無效。");
+                }
+
                 FileTransferPolicy.ValidateManifest(entries, totalBytes, manifestSha256);
                 string destination = FileTransferPolicy.ValidateExistingDirectory(destinationPath);
                 ReceiverState? state = await LoadStateAsync(transferId, cancellationToken).ConfigureAwait(false);
                 if (state is not null &&
                     (!string.Equals(state.DestinationPath, destination, StringComparison.OrdinalIgnoreCase) ||
-                     !string.Equals(state.ManifestSha256, manifestSha256, StringComparison.OrdinalIgnoreCase)))
+                     !string.Equals(state.ManifestSha256, manifestSha256, StringComparison.OrdinalIgnoreCase) ||
+                     state.ConflictBehavior != conflictBehavior))
                 {
-                    return Rejected(transferId, "續傳資料與本次目的地或 manifest 不一致。");
+                    return Rejected(transferId, "續傳資料與本次目的地、manifest 或同名處理模式不一致。");
                 }
 
-                state ??= CreateState(transferId, destination, entries, manifestSha256);
+                state ??= CreateState(
+                    transferId,
+                    destination,
+                    entries,
+                    manifestSha256,
+                    conflictBehavior);
+                state = state with { SkippedIndices = state.SkippedIndices ?? [] };
                 ActiveTransfer active = new(state, entries, totalBytes);
                 ReconcileCompletedFiles(active);
                 PrepareDirectories(active);
@@ -257,7 +303,8 @@ public sealed class FileTransferReceiver
                 List<FileResumePoint> resumePoints = [];
                 foreach (FileTransferEntry entry in entries.Where(item => item.Kind == FileTransferEntryKind.File))
                 {
-                    bool completed = state.CompletedIndices.Contains(entry.Index);
+                    bool completed = state.CompletedIndices.Contains(entry.Index) ||
+                                     active.SkippedIndices.Contains(entry.Index);
                     string partialPath = GetPartialPath(state.ResolvedPaths[entry.Index], transferId);
                     long offset = completed ? entry.Length : File.Exists(partialPath) ? new FileInfo(partialPath).Length : 0;
                     if (offset > entry.Length)
@@ -289,9 +336,11 @@ public sealed class FileTransferReceiver
         Guid transferId,
         string destination,
         IReadOnlyList<FileTransferEntry> entries,
-        string manifestSha256)
+        string manifestSha256,
+        FileConflictBehavior conflictBehavior)
     {
         Dictionary<string, string> topLevelMappings = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> skippedTopLevels = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<int, string> resolvedPaths = [];
         foreach (FileTransferEntry entry in entries.OrderBy(item => item.RelativePath.Count(character => character is '/' or '\\')))
         {
@@ -300,7 +349,27 @@ public sealed class FileTransferReceiver
             string topLevel = segments[0];
             if (!topLevelMappings.TryGetValue(topLevel, out string? resolvedTopLevel))
             {
-                resolvedTopLevel = GetAvailableName(destination, topLevel, entry.Kind == FileTransferEntryKind.Directory);
+                bool conflict = File.Exists(Path.Combine(destination, topLevel)) ||
+                                Directory.Exists(Path.Combine(destination, topLevel));
+                resolvedTopLevel = conflictBehavior switch
+                {
+                    FileConflictBehavior.KeepBoth =>
+                        GetAvailableName(destination, topLevel, entry.Kind == FileTransferEntryKind.Directory),
+                    FileConflictBehavior.Overwrite => topLevel,
+                    FileConflictBehavior.Skip when conflict => topLevel,
+                    FileConflictBehavior.Skip => topLevel,
+                    _ => throw new InvalidDataException("同名檔案處理模式無效。"),
+                };
+                if (conflict && conflictBehavior == FileConflictBehavior.Skip)
+                {
+                    skippedTopLevels.Add(topLevel);
+                }
+
+                if (conflictBehavior == FileConflictBehavior.Overwrite)
+                {
+                    ValidateOverwriteTarget(destination, topLevel, entry.Kind);
+                }
+
                 topLevelMappings[topLevel] = resolvedTopLevel;
             }
 
@@ -313,7 +382,34 @@ public sealed class FileTransferReceiver
             destination,
             manifestSha256,
             resolvedPaths,
-            []);
+            [],
+            entries
+                .Where(entry => skippedTopLevels.Contains(
+                    NormalizeTopLevel(entry.RelativePath)))
+                .Select(entry => entry.Index)
+                .ToHashSet(),
+            conflictBehavior);
+    }
+
+    private static string NormalizeTopLevel(string relativePath) =>
+        FileTransferPolicy.NormalizeRelativePath(relativePath)
+            .Split(Path.DirectorySeparatorChar)[0];
+
+    private static void ValidateOverwriteTarget(
+        string destination,
+        string requestedName,
+        FileTransferEntryKind sourceKind)
+    {
+        string target = Path.Combine(destination, requestedName);
+        if (sourceKind == FileTransferEntryKind.File && Directory.Exists(target))
+        {
+            throw new IOException($"來源是檔案，但同名目的地是資料夾：{target}");
+        }
+
+        if (sourceKind == FileTransferEntryKind.Directory && File.Exists(target))
+        {
+            throw new IOException($"來源是資料夾，但同名目的地是檔案：{target}");
+        }
     }
 
     private static string GetAvailableName(string destination, string requestedName, bool isDirectory)
@@ -334,6 +430,11 @@ public sealed class FileTransferReceiver
     {
         foreach (FileTransferEntry entry in transfer.Entries.OrderBy(item => item.RelativePath.Length))
         {
+            if (transfer.SkippedIndices.Contains(entry.Index))
+            {
+                continue;
+            }
+
             string finalPath = transfer.State.ResolvedPaths[entry.Index];
             if (entry.Kind == FileTransferEntryKind.Directory)
             {
@@ -355,6 +456,11 @@ public sealed class FileTransferReceiver
     {
         foreach (FileTransferEntry entry in transfer.Entries.Where(item => item.Kind == FileTransferEntryKind.File))
         {
+            if (transfer.SkippedIndices.Contains(entry.Index))
+            {
+                continue;
+            }
+
             if (!transfer.State.CompletedIndices.Contains(entry.Index))
             {
                 continue;
@@ -373,6 +479,11 @@ public sealed class FileTransferReceiver
         long total = 0;
         foreach (FileTransferEntry entry in transfer.Entries.Where(item => item.Kind == FileTransferEntryKind.File))
         {
+            if (transfer.SkippedIndices.Contains(entry.Index))
+            {
+                continue;
+            }
+
             if (transfer.State.CompletedIndices.Contains(entry.Index))
             {
                 total += entry.Length;
@@ -391,6 +502,7 @@ public sealed class FileTransferReceiver
 
     private static IReadOnlyList<string> GetTopLevelPaths(ActiveTransfer transfer) =>
         transfer.Entries
+            .Where(entry => !transfer.SkippedIndices.Contains(entry.Index))
             .Select(entry => transfer.State.ResolvedPaths[entry.Index])
             .Where(path => !transfer.State.ResolvedPaths.Values.Any(other =>
                 !string.Equals(path, other, StringComparison.OrdinalIgnoreCase) &&
@@ -448,7 +560,9 @@ public sealed class FileTransferReceiver
         string DestinationPath,
         string ManifestSha256,
         Dictionary<int, string> ResolvedPaths,
-        HashSet<int> CompletedIndices);
+        HashSet<int> CompletedIndices,
+        HashSet<int>? SkippedIndices = null,
+        FileConflictBehavior ConflictBehavior = FileConflictBehavior.KeepBoth);
 
     private sealed class ActiveTransfer(
         ReceiverState state,
@@ -461,6 +575,8 @@ public sealed class FileTransferReceiver
 
         public IReadOnlyDictionary<int, FileTransferEntry> EntriesByIndex { get; } =
             entries.ToDictionary(entry => entry.Index);
+
+        public HashSet<int> SkippedIndices { get; } = state.SkippedIndices ?? [];
 
         public long TotalBytes { get; } = totalBytes;
     }

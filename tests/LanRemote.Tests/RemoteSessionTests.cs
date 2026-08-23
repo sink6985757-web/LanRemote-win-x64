@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using LanRemote.Core;
@@ -8,6 +9,66 @@ namespace LanRemote.Tests;
 
 public sealed class RemoteSessionTests
 {
+    [Fact]
+    public async Task ConnectAsync_TimesOutWhenTlsHandshakeDoesNotRespond()
+    {
+        using CancellationTokenSource testTimeout = new(TimeSpan.FromSeconds(5));
+        TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            IPEndPoint endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+            Task<TcpClient> acceptedTask = listener.AcceptTcpClientAsync(testTimeout.Token).AsTask();
+            RemoteConnectionTimeouts timeouts = new(
+                TimeSpan.FromMilliseconds(250),
+                TimeSpan.FromSeconds(2),
+                TimeSpan.FromSeconds(2));
+            await using RemoteController controller = new(connectionTimeouts: timeouts);
+
+            TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() =>
+                controller.ConnectAsync(endpoint, testTimeout.Token));
+            using TcpClient accepted = await acceptedTask;
+
+            Assert.Contains("連線或安全交握", exception.Message, StringComparison.Ordinal);
+            Assert.False(controller.IsConnected);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task ConnectAsync_UsesSeparatePairingApprovalTimeout()
+    {
+        using CancellationTokenSource testTimeout = new(TimeSpan.FromSeconds(5));
+        await using RemoteHost host = new(new FakeScreenFrameSource(), new NullInputInjector())
+        {
+            PairingApprovalHandler = async (_, cancellationToken) =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return new PairingApproval(true, false);
+            },
+        };
+        await host.StartAsync(0, testTimeout.Token);
+        IPEndPoint endpoint = Assert.IsType<IPEndPoint>(host.ListeningEndpoint);
+        RemoteConnectionTimeouts timeouts = new(
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromMilliseconds(250),
+            TimeSpan.FromSeconds(2));
+        await using RemoteController controller = new(connectionTimeouts: timeouts);
+
+        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() =>
+            controller.ConnectAsync(
+                new IPEndPoint(IPAddress.Loopback, endpoint.Port),
+                testTimeout.Token));
+
+        Assert.Contains("等待被控端核准", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(TimeSpan.FromSeconds(15), RemoteConnectionTimeouts.Default.EstablishmentTimeout);
+        Assert.Equal(TimeSpan.FromMinutes(2), RemoteConnectionTimeouts.Default.PairingApprovalTimeout);
+        Assert.False(controller.IsConnected);
+    }
+
     [Fact]
     public void TransferIdentityIncludesManifestAndSupportsDriveRoot()
     {
@@ -88,6 +149,58 @@ public sealed class RemoteSessionTests
     }
 
     [Fact]
+    public async Task ApprovedClipboardText_SynchronizesBothDirectionsAndHonorsModes()
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(20));
+        FakeScreenFrameSource screen = new();
+        await using RemoteHost host = new(screen, new NullInputInjector())
+        {
+            PairingApprovalHandler = (_, _) =>
+                Task.FromResult(new PairingApproval(true, false, true)),
+        };
+        Channel<ClipboardSyncMode> modes = Channel.CreateUnbounded<ClipboardSyncMode>();
+        host.ClipboardSyncModeChanged += mode => modes.Writer.TryWrite(mode);
+        TaskCompletionSource<string> hostText = NewCompletion<string>();
+        host.ClipboardTextReceived += text => hostText.TrySetResult(text);
+        await host.StartAsync(0, timeout.Token);
+        IPEndPoint endpoint = Assert.IsType<IPEndPoint>(host.ListeningEndpoint);
+
+        await using RemoteController controller = new();
+        TaskCompletionSource<string> controllerText = NewCompletion<string>();
+        controller.ClipboardTextReceived += text => controllerText.TrySetResult(text);
+        await controller.ConnectAsync(
+            new IPEndPoint(IPAddress.Loopback, endpoint.Port),
+            timeout.Token);
+
+        Assert.True(controller.ClipboardTextAllowed);
+        Assert.Equal(
+            ClipboardSyncMode.Bidirectional,
+            await modes.Reader.ReadAsync(timeout.Token));
+
+        string controllerValue = new string('C', ProtocolConstants.ClipboardTextChunkLength + 9) + "主控端";
+        Assert.True(await controller.SendClipboardTextAsync(controllerValue, timeout.Token));
+        Assert.Equal(controllerValue, await hostText.Task.WaitAsync(timeout.Token));
+
+        const string hostValue = "被控端複製的 Unicode 純文字";
+        Assert.True(await host.SendClipboardTextAsync(hostValue, timeout.Token));
+        Assert.Equal(hostValue, await controllerText.Task.WaitAsync(timeout.Token));
+
+        await controller.ChangeClipboardSyncModeAsync(
+            ClipboardSyncMode.ControllerToHost,
+            timeout.Token);
+        Assert.Equal(
+            ClipboardSyncMode.ControllerToHost,
+            await modes.Reader.ReadAsync(timeout.Token));
+        Assert.False(host.CanSendClipboardText);
+        Assert.False(await host.SendClipboardTextAsync("blocked", timeout.Token));
+
+        await controller.ChangeClipboardSyncModeAsync(ClipboardSyncMode.Off, timeout.Token);
+        Assert.Equal(ClipboardSyncMode.Off, await modes.Reader.ReadAsync(timeout.Token));
+        Assert.False(await controller.SendClipboardTextAsync("blocked", timeout.Token));
+        await controller.DisconnectAsync();
+    }
+
+    [Fact]
     public async Task RejectedSession_DoesNotStartScreenCapture()
     {
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
@@ -129,8 +242,14 @@ public sealed class RemoteSessionTests
             timeout.Token);
 
         Assert.False(controller.FileTransferAllowed);
+        Assert.False(controller.ClipboardTextAllowed);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             controller.BrowseRemoteAsync(null, timeout.Token));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
+            await controller.ChangeClipboardSyncModeAsync(
+                ClipboardSyncMode.Bidirectional,
+                timeout.Token));
+        Assert.False(await controller.SendClipboardTextAsync("not authorized", timeout.Token));
 
         Guid? requestId = await controller.RequestSecureAttentionAsync(timeout.Token);
         SecureAttentionResult result = await resultReceived.Task.WaitAsync(timeout.Token);
@@ -202,6 +321,192 @@ public sealed class RemoteSessionTests
                     Path.Combine(controllerDestination, "payload (1).bin"),
                     timeout.Token));
             await controller.DisconnectAsync();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ApprovedFileTransfer_BothEndpointsInitiateAndOppositeDirectionsRunTogether()
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
+        string root = Path.Combine(Path.GetTempPath(), $"LanRemoteDuplexTransferTest-{Guid.NewGuid():N}");
+        string controllerSourceRoot = Path.Combine(root, "controller-source");
+        string controllerDestination = Path.Combine(root, "controller-destination");
+        string hostSourceRoot = Path.Combine(root, "host-source");
+        string hostDestination = Path.Combine(root, "host-destination");
+        Directory.CreateDirectory(controllerSourceRoot);
+        Directory.CreateDirectory(controllerDestination);
+        Directory.CreateDirectory(hostSourceRoot);
+        Directory.CreateDirectory(hostDestination);
+        string controllerSource = Path.Combine(controllerSourceRoot, "from-controller.bin");
+        string hostSource = Path.Combine(hostSourceRoot, "from-host.bin");
+        byte[] controllerBytes = Enumerable.Range(0, ProtocolConstants.FileChunkLength + 321)
+            .Select(index => (byte)(index % 241))
+            .ToArray();
+        byte[] hostBytes = Enumerable.Range(0, ProtocolConstants.FileChunkLength + 777)
+            .Select(index => (byte)(index % 233))
+            .ToArray();
+        await File.WriteAllBytesAsync(controllerSource, controllerBytes, timeout.Token);
+        await File.WriteAllBytesAsync(hostSource, hostBytes, timeout.Token);
+
+        try
+        {
+            await using RemoteHost host = new(
+                new FakeScreenFrameSource(),
+                new NullInputInjector(),
+                fileReceiver: new FileTransferReceiver(Path.Combine(root, "host-state")))
+            {
+                PairingApprovalHandler = (_, _) => Task.FromResult(new PairingApproval(true, true)),
+            };
+            await host.StartAsync(0, timeout.Token);
+            IPEndPoint listeningEndpoint = Assert.IsType<IPEndPoint>(host.ListeningEndpoint);
+            await using RemoteController controller = new(
+                new FileTransferReceiver(Path.Combine(root, "controller-state")));
+            await controller.ConnectAsync(
+                new IPEndPoint(IPAddress.Loopback, listeningEndpoint.Port),
+                QualityPreset.Balanced,
+                fileTransferRequested: true,
+                timeout.Token);
+
+            Assert.True(host.IsConnected);
+            Assert.True(host.FileTransferAllowed);
+            Assert.True(controller.FileTransferAllowed);
+
+            Task<FileTransferResult> controllerToHost = controller.UploadAsync(
+                [controllerSource],
+                hostDestination,
+                FileConflictBehavior.KeepBoth,
+                timeout.Token);
+            Task<FileTransferResult> hostToController = host.UploadAsync(
+                [hostSource],
+                controllerDestination,
+                FileConflictBehavior.KeepBoth,
+                timeout.Token);
+            FileTransferResult[] simultaneous = await Task.WhenAll(controllerToHost, hostToController);
+            Assert.All(simultaneous, result => Assert.True(result.Succeeded, result.Message));
+            Assert.Equal(
+                controllerBytes,
+                await File.ReadAllBytesAsync(
+                    Path.Combine(hostDestination, "from-controller.bin"),
+                    timeout.Token));
+            Assert.Equal(
+                hostBytes,
+                await File.ReadAllBytesAsync(
+                    Path.Combine(controllerDestination, "from-host.bin"),
+                    timeout.Token));
+
+            DirectoryBrowseResponse hostBrowse = await host.BrowseRemoteAsync(
+                controllerDestination,
+                timeout.Token);
+            RemoteDirectoryEntry controllerReceived = Assert.Single(
+                hostBrowse.Entries,
+                entry => entry.Name == "from-host.bin");
+            string hostDownloadDestination = Path.Combine(root, "host-download");
+            Directory.CreateDirectory(hostDownloadDestination);
+            FileTransferResult hostDownload = await host.DownloadAsync(
+                [controllerReceived.FullPath],
+                hostDownloadDestination,
+                FileConflictBehavior.KeepBoth,
+                timeout.Token);
+            Assert.True(hostDownload.Succeeded, hostDownload.Message);
+            Assert.Equal(
+                hostBytes,
+                await File.ReadAllBytesAsync(
+                    Path.Combine(hostDownloadDestination, "from-host.bin"),
+                    timeout.Token));
+
+            await controller.DisconnectAsync();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task FileTransfer_RequiresInitiatorRequestAndReceiverApproval()
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
+        await using RemoteHost host = new(new FakeScreenFrameSource(), new NullInputInjector())
+        {
+            PairingApprovalHandler = (request, _) =>
+            {
+                Assert.False(request.FileTransferRequested);
+                return Task.FromResult(new PairingApproval(true, true));
+            },
+        };
+        await host.StartAsync(0, timeout.Token);
+        IPEndPoint listeningEndpoint = Assert.IsType<IPEndPoint>(host.ListeningEndpoint);
+        await using RemoteController controller = new();
+        await controller.ConnectAsync(
+            new IPEndPoint(IPAddress.Loopback, listeningEndpoint.Port),
+            QualityPreset.Balanced,
+            fileTransferRequested: false,
+            timeout.Token);
+
+        Assert.False(controller.FileTransferAllowed);
+        Assert.False(host.FileTransferAllowed);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            host.BrowseRemoteAsync(null, timeout.Token));
+        await controller.DisconnectAsync();
+    }
+
+    [Theory]
+    [InlineData(FileConflictBehavior.Overwrite, "new")]
+    [InlineData(FileConflictBehavior.Skip, "old")]
+    public async Task FileReceiver_AppliesExplicitConflictBehavior(
+        FileConflictBehavior behavior,
+        string expectedText)
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
+        string root = Path.Combine(Path.GetTempPath(), $"LanRemoteConflictTest-{Guid.NewGuid():N}");
+        string sourceRoot = Path.Combine(root, "source");
+        string destination = Path.Combine(root, "destination");
+        Directory.CreateDirectory(sourceRoot);
+        Directory.CreateDirectory(destination);
+        string sourcePath = Path.Combine(sourceRoot, "same.txt");
+        string destinationPath = Path.Combine(destination, "same.txt");
+        await File.WriteAllTextAsync(sourcePath, "new", timeout.Token);
+        await File.WriteAllTextAsync(destinationPath, "old", timeout.Token);
+
+        try
+        {
+            PreparedFileTransfer prepared = await FileTransferManifestBuilder.CreateAsync(
+                [sourcePath],
+                cancellationToken: timeout.Token);
+            FileUploadOffer offer = new(
+                prepared.TransferId,
+                destination,
+                prepared.Entries,
+                prepared.TotalBytes,
+                prepared.ManifestSha256,
+                behavior);
+            FileTransferReceiver receiver = new(Path.Combine(root, "state"));
+            FileTransferDecision decision = await receiver.AcceptUploadAsync(offer, timeout.Token);
+            Assert.True(decision.Accepted, decision.Reason);
+            FileTransferEntry entry = Assert.Single(prepared.Entries);
+            FileResumePoint resume = Assert.Single(decision.ResumePoints);
+            if (!resume.Completed)
+            {
+                byte[] data = await File.ReadAllBytesAsync(sourcePath, timeout.Token);
+                _ = await receiver.ReceiveChunkAsync(
+                    new FileChunkPayload(prepared.TransferId, entry.Index, 0, data),
+                    FileTransferDirection.Upload,
+                    timeout.Token);
+            }
+
+            FileTransferResult result = await receiver.CompleteAsync(prepared.TransferId, timeout.Token);
+            Assert.True(result.Succeeded, result.Message);
+            Assert.Equal(expectedText, await File.ReadAllTextAsync(destinationPath, timeout.Token));
         }
         finally
         {

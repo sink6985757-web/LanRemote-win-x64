@@ -1,6 +1,7 @@
 <Window x:Class="LanRemote.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:LanRemote.App"
         Title="LanRemote — 區網雙向控制"
         Width="1180" Height="820" MinWidth="900" MinHeight="640"
         Background="#0B1220" Foreground="#E5EDF8"
@@ -61,8 +62,6 @@
                 <StackPanel>
                     <Menu x:Name="MainMenu" Background="#E8EDF3" Foreground="#182234">
                         <MenuItem Header="_File">
-                            <MenuItem x:Name="FileTransferMenuItem" Header="檔案傳輸(_T)…"
-                                      Click="FileTransferMenuItem_Click" IsEnabled="False" />
                             <MenuItem x:Name="ReceiveClipboardMenuItem" Header="接收遠端剪貼簿檔案(_R)…"
                                       Click="ReceiveRemoteClipboardMenuItem_Click" IsEnabled="False" />
                             <Separator />
@@ -142,15 +141,23 @@
                             <Button x:Name="CtrlAltZeroToolButton" Style="{StaticResource ToolButtonStyle}"
                                     Content="Ctrl+Alt+0" Click="CtrlAltZeroToolButton_Click" />
                             <Separator />
-                            <ToggleButton x:Name="RemoteClipboardHotkeysToggle"
-                                          Style="{StaticResource ToolToggleStyle}"
-                                          Content="C/X/V 直通" IsChecked="True" IsEnabled="False"
-                                          ToolBar.OverflowMode="Never"
-                                          ToolTip="開啟：快捷鍵直接操作被控端剪貼簿；關閉：本機檔案 Ctrl+V 使用跨機上傳"
-                                          Checked="RemoteClipboardHotkeysToggle_Changed"
-                                          Unchecked="RemoteClipboardHotkeysToggle_Changed" />
+                            <Menu Background="Transparent" Foreground="#162033"
+                                  VerticalAlignment="Center" ToolBar.OverflowMode="Never">
+                                <MenuItem x:Name="ClipboardToolMenu" Header="剪貼簿" IsEnabled="False"
+                                          ToolTip="純文字剪貼簿同步模式">
+                                    <MenuItem x:Name="ClipboardOffMenuItem" Header="關閉" Tag="Off"
+                                              IsCheckable="True" Click="ClipboardModeMenuItem_Click" />
+                                    <MenuItem x:Name="ClipboardOneWayMenuItem" Header="單向（主控 → 被控）"
+                                              Tag="ControllerToHost" IsCheckable="True"
+                                              Click="ClipboardModeMenuItem_Click" />
+                                    <MenuItem x:Name="ClipboardBidirectionalMenuItem" Header="雙向"
+                                              Tag="Bidirectional" IsCheckable="True" IsChecked="True"
+                                              Click="ClipboardModeMenuItem_Click" />
+                                </MenuItem>
+                            </Menu>
                             <Button x:Name="FileTransferToolButton" Style="{StaticResource ToolButtonStyle}"
-                                    Content="⇄ 檔案" Click="FileTransferMenuItem_Click" IsEnabled="False"
+                                    Content="⇄ 檔案" Click="FileTransferToolButton_Click" IsEnabled="False"
+                                    ToolTip="開啟檔案傳輸"
                                     ToolBar.OverflowMode="Never" />
                             <Menu Background="Transparent" Foreground="#162033" VerticalAlignment="Center">
                                 <MenuItem x:Name="ShortcutToolMenu" Header="⌨ 自訂按鍵">
@@ -196,6 +203,15 @@
 
             <Grid>
                 <Grid x:Name="LauncherView" Background="#0B1220" Margin="22">
+                    <Grid.Resources>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="#F8FAFC" />
+                        </Style>
+                        <Style TargetType="CheckBox">
+                            <Setter Property="Foreground" Value="#F8FAFC" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </Style>
+                    </Grid.Resources>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -208,7 +224,7 @@
                         <StackPanel>
                             <TextBlock Text="LanRemote" FontSize="28" FontWeight="Bold" />
                             <TextBlock Text="兩臺電腦使用同一套程式；斷線交換角色後即可反向控制。"
-                                       Foreground="#9FB0C8" Margin="0,4,0,0" />
+                                       Foreground="#CBD8E8" Margin="0,4,0,0" />
                         </StackPanel>
                         <Border Grid.Column="1" Background="#17384B" CornerRadius="16" Padding="14,7"
                                 VerticalAlignment="Center">
@@ -227,10 +243,10 @@
                             <StackPanel>
                                 <TextBlock Text="A. 讓這臺電腦被控制" FontSize="18" FontWeight="SemiBold" />
                                 <TextBlock Text="啟動後，把區網位址告訴另一臺。每次連線都會顯示六位數配對碼並要求核准。"
-                                           Foreground="#9FB0C8" TextWrapping="Wrap" Margin="0,5,0,10" />
-                                <TextBlock Text="連接埠" Foreground="#BCC9DA" />
+                                           Foreground="#CBD8E8" TextWrapping="Wrap" Margin="0,5,0,10" />
+                                <TextBlock Text="連接埠" Foreground="#DEE8F5" />
                                 <TextBox x:Name="HostPortTextBox" Text="45873" MaxLength="5" />
-                                <TextBlock Text="本機可用位址" Foreground="#BCC9DA" Margin="0,10,0,0" />
+                                <TextBlock Text="本機可用位址" Foreground="#DEE8F5" Margin="0,10,0,0" />
                                 <TextBlock x:Name="LocalAddressesText" Text="讀取中…" Foreground="{StaticResource AccentBrush}"
                                            TextWrapping="Wrap" Margin="0,5,0,0" />
                                 <StackPanel Orientation="Horizontal">
@@ -245,13 +261,18 @@
                             <StackPanel>
                                 <TextBlock Text="B. 控制另一臺電腦" FontSize="18" FontWeight="SemiBold" />
                                 <TextBlock Text="在另一臺先按『開始等候』，再輸入它的 IPv4:連接埠並核對配對碼。"
-                                           Foreground="#9FB0C8" TextWrapping="Wrap" Margin="0,5,0,10" />
-                                <TextBlock Text="被控端位址" Foreground="#BCC9DA" />
+                                           Foreground="#CBD8E8" TextWrapping="Wrap" Margin="0,5,0,10" />
+                                <TextBlock Text="被控端位址" Foreground="#DEE8F5" />
                                 <TextBox x:Name="RemoteEndpointTextBox" Text="192.168.1.2:45873" />
-                                <TextBlock Text="連線畫面模式" Foreground="#BCC9DA" Margin="0,10,0,0" />
+                                <TextBlock Text="連線畫面模式" Foreground="#DEE8F5" Margin="0,10,0,0" />
                                 <TextBlock x:Name="SelectedQualityText" Text="平衡 — 1600×900 / 48 fps"
                                            Foreground="{StaticResource AccentBrush}" Margin="0,5,0,0" />
-                                <TextBlock Text="本次配對碼" Foreground="#BCC9DA" Margin="0,10,0,0" />
+                                <CheckBox x:Name="RequestFileTransferCheckBox" IsChecked="True"
+                                          Margin="0,13,0,0" FontWeight="SemiBold"
+                                          Content="要求啟用雙向檔案傳輸" />
+                                <TextBlock Margin="24,5,0,0" Foreground="#CBD8E8" TextWrapping="Wrap"
+                                           Text="對方仍須在配對視窗另外同意；任一方未同意就不會開啟。" />
+                                <TextBlock Text="本次配對碼" Foreground="#DEE8F5" Margin="0,10,0,0" />
                                 <TextBlock x:Name="PairingCodeText" Text="—— —— ——" FontFamily="Consolas"
                                            FontSize="25" FontWeight="Bold" Foreground="#FCD34D" Margin="0,3,0,0" />
                                 <StackPanel Orientation="Horizontal">
@@ -265,32 +286,54 @@
                 </Grid>
 
                 <Grid x:Name="SessionView" Visibility="Collapsed" Background="#02050A">
-                    <TextBlock x:Name="RemoteDisplayPlaceholder"
-                               Text="正在等待第一張遠端畫面…"
-                               Foreground="#60728E" HorizontalAlignment="Center" VerticalAlignment="Center"
-                               FontSize="17" />
-                    <Image x:Name="RemoteDisplay" Stretch="Fill" Focusable="True" Visibility="Collapsed"
-                           Cursor="None" AllowDrop="True"
-                           DragEnter="RemoteDisplay_DragEnter" DragOver="RemoteDisplay_DragOver"
-                           DragLeave="RemoteDisplay_DragLeave" Drop="RemoteDisplay_Drop"
-                           MouseEnter="RemoteDisplay_MouseEnter" MouseLeave="RemoteDisplay_MouseLeave"
-                           MouseMove="RemoteDisplay_MouseMove"
-                           MouseDown="RemoteDisplay_MouseDown" MouseUp="RemoteDisplay_MouseUp"
-                           MouseWheel="RemoteDisplay_MouseWheel"
-                           PreviewKeyDown="RemoteDisplay_PreviewKeyDown"
-                           PreviewKeyUp="RemoteDisplay_PreviewKeyUp" />
-                    <Canvas x:Name="ControllerCursorLayer" IsHitTestVisible="False" Visibility="Collapsed">
-                        <Path x:Name="ControllerCursorArrow"
-                              Data="M 0,0 L 0,17.6 L 4.4,13.2 L 8,20 L 11.2,18.4 L 7.6,11.6 L 14.4,11.6 Z"
-                              Fill="#4FD1C5" Stroke="White" StrokeThickness="1.3"
-                              StrokeLineJoin="Round" />
-                    </Canvas>
-                    <Border x:Name="DropTargetOverlay" Visibility="Collapsed" IsHitTestVisible="False"
-                            VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="22"
-                            Background="#E6111C30" BorderBrush="#4FD1C5" BorderThickness="1"
-                            CornerRadius="8" Padding="16,10">
-                        <TextBlock x:Name="DropTargetText" Text="正在解析遠端目的地…"
-                                   Foreground="White" FontWeight="SemiBold" />
+                    <Grid x:Name="SessionDesktopSurface" Background="#02050A">
+                        <Grid x:Name="RemoteControllerSurface">
+                            <TextBlock x:Name="RemoteDisplayPlaceholder"
+                                       Text="正在等待第一張遠端畫面…"
+                                       Foreground="#93A8C3" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" FontSize="17" />
+                            <Image x:Name="RemoteDisplay" Stretch="Fill" Focusable="True"
+                                   Visibility="Collapsed" Cursor="None" AllowDrop="True"
+                                   DragEnter="RemoteDisplay_DragEnter" DragOver="RemoteDisplay_DragOver"
+                                   DragLeave="RemoteDisplay_DragLeave" Drop="RemoteDisplay_Drop"
+                                   MouseEnter="RemoteDisplay_MouseEnter" MouseLeave="RemoteDisplay_MouseLeave"
+                                   MouseMove="RemoteDisplay_MouseMove"
+                                   MouseDown="RemoteDisplay_MouseDown" MouseUp="RemoteDisplay_MouseUp"
+                                   MouseWheel="RemoteDisplay_MouseWheel"
+                                   PreviewKeyDown="RemoteDisplay_PreviewKeyDown"
+                                   PreviewKeyUp="RemoteDisplay_PreviewKeyUp" />
+                            <Canvas x:Name="ControllerCursorLayer" IsHitTestVisible="False"
+                                    Visibility="Collapsed">
+                                <Path x:Name="ControllerCursorArrow"
+                                      Data="M 0,0 L 0,17.6 L 4.4,13.2 L 8,20 L 11.2,18.4 L 7.6,11.6 L 14.4,11.6 Z"
+                                      Fill="#4FD1C5" Stroke="White" StrokeThickness="1.3"
+                                      StrokeLineJoin="Round" />
+                            </Canvas>
+                            <Border x:Name="DropTargetOverlay" Visibility="Collapsed"
+                                    IsHitTestVisible="False" VerticalAlignment="Bottom"
+                                    HorizontalAlignment="Center" Margin="22" Background="#E6111C30"
+                                    BorderBrush="#4FD1C5" BorderThickness="1" CornerRadius="8"
+                                    Padding="16,10">
+                                <TextBlock x:Name="DropTargetText" Text="正在解析遠端目的地…"
+                                           Foreground="White" FontWeight="SemiBold" />
+                            </Border>
+                        </Grid>
+                        <Border x:Name="HostSessionSurface" Visibility="Collapsed"
+                                Style="{StaticResource CardStyle}" Width="620"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <StackPanel>
+                                <TextBlock Text="這臺電腦正在接受遠端控制" FontSize="24"
+                                           FontWeight="Bold" />
+                                <TextBlock Margin="0,10,0,0" Foreground="#C7D5E7" TextWrapping="Wrap"
+                                           Text="本機畫面仍保持可見，並可隨時從工具列立即中止連線。若要控制對方，請斷線後交換角色。" />
+                                <TextBlock Margin="0,8,0,0" Foreground="#5EEAD4" TextWrapping="Wrap"
+                                           Text="檔案傳輸請使用上方 Toolbar 的「檔案」。" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                    <Border x:Name="FileTransferSurface" Visibility="Collapsed" Background="#0B1220"
+                            Panel.ZIndex="20">
+                        <local:FileTransferPanel x:Name="FileTransferPanel" />
                     </Border>
                 </Grid>
             </Grid>

@@ -2,9 +2,13 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -25,13 +29,13 @@ public partial class MainWindow : Window
         "shortcuts.json"));
     private readonly List<RemoteShortcut> _customShortcuts = [];
     private readonly LatestValueBuffer<VideoFramePayload> _frameBuffer = new();
+    private readonly LatestValueBuffer<string> _clipboardTextBuffer = new();
     private readonly DispatcherTimer _statusToastTimer = new()
     {
         Interval = TimeSpan.FromSeconds(4),
     };
     private RemoteHost? _host;
     private RemoteController? _controller;
-    private FileTransferWindow? _fileTransferWindow;
     private CancellationTokenSource? _directTransferCancellation;
     private Guid? _activeTransferId;
     private FileTransferDirection _activeTransferDirection;
@@ -48,7 +52,13 @@ public partial class MainWindow : Window
     private bool _chromeTemporarilyRevealed;
     private bool _syncingQualityUi;
     private bool _syncingScaleUi;
-    private bool _remoteClipboardHotkeysEnabled = true;
+    private ClipboardSyncMode _clipboardSyncMode = ClipboardSyncMode.Bidirectional;
+    private HwndSource? _windowSource;
+    private bool _clipboardReadScheduled;
+    private bool _clipboardReadRequested;
+    private int _clipboardSendScheduled;
+    private string? _recentRemoteClipboardHash;
+    private DateTimeOffset _recentRemoteClipboardHashExpiresAt;
     private QualityPreset _selectedQualityPreset = QualityPreset.Balanced;
     private RemoteScaleMode _scaleMode = RemoteScaleMode.Stretch;
     private RemoteWindowMode _remoteWindowMode = RemoteWindowMode.Windowed;
@@ -64,11 +74,36 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        FileTransferPanel.ActiveTransfersChanged += active =>
+        {
+            CancelActiveTransferToolButton.Visibility = active
+                ? Visibility.Visible
+                : _directTransferCancellation is not null
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            if (active)
+            {
+                StatusTransferText.Text = "｜檔案傳輸中";
+                StatusTransferText.Visibility = Visibility.Visible;
+            }
+        };
+        FileTransferPanel.CloseRequested += ShowRemoteDesktopSurface;
         _statusToastTimer.Tick += (_, _) =>
         {
             _statusToastTimer.Stop();
             TransientStatusBorder.Visibility = Visibility.Collapsed;
         };
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+        _windowSource?.AddHook(WindowMessageHook);
+        if (_windowSource is not null && !AddClipboardFormatListener(_windowSource.Handle))
+        {
+            SetStatus("無法啟用 Windows 文字剪貼簿監聽；請重新啟動程式。");
+        }
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -129,6 +164,31 @@ public partial class MainWindow : Window
         });
         host.FileTransferProgressChanged += progress => RunOnUi(() => UpdateTransferProgress(progress));
         host.FileTransferCompleted += result => RunOnUi(() => CompleteTransferStatus(result));
+        host.SessionReadyReceived += ready => RunOnUi(() => EnterHostSessionView(ready));
+        host.SessionEnded += () => RunOnUi(() =>
+        {
+            if (_host is not null)
+            {
+                LeaveSessionView();
+                SetStatus("遠端連線已結束；被控端仍繼續等待下一次連線。");
+                SetRoleUi();
+            }
+        });
+        host.ClipboardTextReceived += text => RunOnUi(() => _ = ApplyRemoteClipboardTextAsync(text));
+        host.ClipboardSyncModeChanged += mode => RunOnUi(() =>
+        {
+            if (mode == ClipboardSyncMode.Off)
+            {
+                ClearClipboardSyncState();
+            }
+
+            SetStatus(mode switch
+            {
+                ClipboardSyncMode.ControllerToHost => "本次連線已啟用單向文字剪貼簿（主控 → 被控）。",
+                ClipboardSyncMode.Bidirectional => "本次連線已啟用雙向文字剪貼簿。",
+                _ => "本次連線的文字剪貼簿同步已關閉。",
+            });
+        });
         host.PairingApprovalHandler = async (request, cancellationToken) =>
         {
             return await Dispatcher.InvokeAsync(
@@ -174,6 +234,9 @@ public partial class MainWindow : Window
             await host.DisposeAsync();
         }
 
+        ClearClipboardSyncState();
+        LeaveSessionView();
+
         PairingCodeText.Text = "—— —— ——";
         if (!_closing)
         {
@@ -198,11 +261,11 @@ public partial class MainWindow : Window
         }
         catch (FormatException exception)
         {
-            SetStatus(exception.Message);
+            ShowConnectionFailure(exception.Message);
             return;
         }
 
-        RemoteController controller = new();
+        RemoteController controller = new(clipboardFileProvider: new WindowsClipboardFileProvider());
         controller.StatusChanged += message => RunOnUi(() => SetStatus(message));
         controller.PairingCodeAvailable += code => RunOnUi(() =>
             PairingCodeText.Text = FormatPairingCode(code));
@@ -228,6 +291,7 @@ public partial class MainWindow : Window
         });
         controller.FileTransferProgressChanged += progress => RunOnUi(() => UpdateTransferProgress(progress));
         controller.FileTransferCompleted += result => RunOnUi(() => CompleteTransferStatus(result));
+        controller.ClipboardTextReceived += text => RunOnUi(() => _ = ApplyRemoteClipboardTextAsync(text));
         controller.VideoFrameReceived += EnqueueFrame;
         controller.MetricsReceived += metrics => RunOnUi(() =>
         {
@@ -240,16 +304,21 @@ public partial class MainWindow : Window
         SetStatus($"正在連線至 {endpoint}…");
         try
         {
-            await controller.ConnectAsync(endpoint, _selectedQualityPreset);
+            await controller.ConnectAsync(
+                endpoint,
+                _selectedQualityPreset,
+                RequestFileTransferCheckBox.IsChecked == true);
+            _clipboardSyncMode = controller.ClipboardSyncMode;
+            UpdateClipboardModeUi();
             SetRoleUi();
         }
         catch (Exception exception)
         {
             _controller = null;
             await controller.DisposeAsync();
-            SetStatus($"控制端連線失敗：{exception.Message}");
             LeaveSessionView();
             SetRoleUi();
+            ShowConnectionFailure(GetConnectionFailureReason(exception));
         }
     }
 
@@ -264,20 +333,49 @@ public partial class MainWindow : Window
         _sessionViewActive = true;
         LauncherView.Visibility = Visibility.Collapsed;
         SessionView.Visibility = Visibility.Visible;
+        ShowRemoteDesktopSurface();
+        RemoteControllerSurface.Visibility = Visibility.Visible;
+        HostSessionSurface.Visibility = Visibility.Collapsed;
         RemoteDisplayPlaceholder.Visibility = Visibility.Visible;
         RemoteDisplay.Visibility = Visibility.Collapsed;
         ApplyQualityUi(ready.QualityProfile);
         SetChromePinned(true);
         ApplyRemoteWindowMode(RemoteWindowMode.Windowed);
+        _ = FileTransferPanel.SetSessionAsync(_controller);
         SessionInfoText.Text = $"{ready.QualityProfile.DisplayName}｜{ready.Width}×{ready.Height}｜{ready.Codec}";
         SetStatus($"控制 session 已啟用；拖曳視窗即可自適應畫面，F11 切換全螢幕。");
         SetRoleUi();
-        RemoteDisplay.Focus();
         UpdateStatusDisplay();
     }
 
-    private async void DisconnectButton_Click(object sender, RoutedEventArgs e) =>
-        await DisconnectControllerAsync();
+    private void EnterHostSessionView(SessionReady ready)
+    {
+        _sessionViewActive = true;
+        LauncherView.Visibility = Visibility.Collapsed;
+        SessionView.Visibility = Visibility.Visible;
+        ShowRemoteDesktopSurface();
+        RemoteControllerSurface.Visibility = Visibility.Collapsed;
+        HostSessionSurface.Visibility = Visibility.Visible;
+        SessionInfoText.Text = $"被控端｜{ready.Width}×{ready.Height}｜{ready.Codec}";
+        SetChromePinned(true);
+        ApplyRemoteWindowMode(RemoteWindowMode.Windowed);
+        _ = FileTransferPanel.SetSessionAsync(_host);
+        SetStatus("已建立工作階段；需要傳輸檔案時請使用上方 Toolbar 的「檔案」。");
+        SetRoleUi();
+        UpdateStatusDisplay();
+    }
+
+    private async void DisconnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_controller is not null)
+        {
+            await DisconnectControllerAsync();
+        }
+        else if (_host?.IsConnected == true)
+        {
+            await _host.DisconnectSessionAsync();
+        }
+    }
 
     private async Task DisconnectControllerAsync()
     {
@@ -288,9 +386,11 @@ public partial class MainWindow : Window
             await controller.DisposeAsync();
         }
 
+        ClearClipboardSyncState();
+        _clipboardSyncMode = ClipboardSyncMode.Bidirectional;
+        UpdateClipboardModeUi();
+
         LeaveSessionView();
-        _fileTransferWindow?.Close();
-        _fileTransferWindow = null;
         PairingCodeText.Text = "—— —— ——";
         _lastMetrics = null;
         if (!_closing)
@@ -309,6 +409,7 @@ public partial class MainWindow : Window
         }
 
         _sessionViewActive = false;
+        _ = FileTransferPanel.SetSessionAsync(null);
         SetChromePinned(true);
         RemoteDisplay.Source = null;
         _frameBuffer.Clear();
@@ -316,6 +417,8 @@ public partial class MainWindow : Window
         ControllerCursorLayer.Visibility = Visibility.Collapsed;
         RemoteDisplay.Visibility = Visibility.Collapsed;
         RemoteDisplayPlaceholder.Visibility = Visibility.Visible;
+        FileTransferSurface.Visibility = Visibility.Collapsed;
+        SessionDesktopSurface.Visibility = Visibility.Visible;
         SessionView.Visibility = Visibility.Collapsed;
         LauncherView.Visibility = Visibility.Visible;
         _remoteWidth = 0;
@@ -331,6 +434,11 @@ public partial class MainWindow : Window
     private void EnqueueFrame(VideoFramePayload frame)
     {
         if (!_sessionViewActive)
+        {
+            return;
+        }
+
+        if (_controller?.IsConnected != true)
         {
             return;
         }
@@ -569,22 +677,24 @@ public partial class MainWindow : Window
     private void UpdateStatusDisplay()
     {
         bool hosting = _host is not null;
-        bool connected = _controller?.IsConnected == true;
+        bool controlling = _controller?.IsConnected == true;
+        bool receivingControl = _host?.IsConnected == true;
+        bool connected = controlling || receivingControl;
         StatusConnectionText.Text = connected
             ? "● 已連線"
             : hosting ? "● 等候連線" : "● 尚未連線";
         StatusConnectionText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(
             connected ? "#047857" : hosting ? "#B45309" : "#64748B"));
-        StatusFpsText.Text = connected ? $"｜{_currentPresentationFps:F1} FPS" : string.Empty;
+        StatusFpsText.Text = controlling ? $"｜{_currentPresentationFps:F1} FPS" : string.Empty;
 
         QualityProfile profile = _controller?.CurrentQualityProfile ?? QualityProfiles.Get(_selectedQualityPreset);
-        SessionInfoText.Text = connected
+        SessionInfoText.Text = controlling
             ? $"｜目標 {profile.FramesPerSecond} FPS｜{_remoteWidth}×{_remoteHeight}"
-            : hosting ? "｜被控端" : string.Empty;
+            : receivingControl ? "｜被控端已連線" : hosting ? "｜被控端" : string.Empty;
         if (_lastMetrics is MetricsPayload metrics)
         {
             long age = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _lastFrameTimestamp);
-            MetricsText.Text = connected
+            MetricsText.Text = controlling
                 ? $"｜丟棄 {_frameBuffer.DroppedCount}｜{metrics.LastFrameBytes / 1024d:F0} KiB｜畫面 {age} ms｜{_lastStatusMessage}"
                 : $"｜已送出 {metrics.SentFrames}｜{metrics.LastFrameBytes / 1024d:F0} KiB｜{_lastStatusMessage}";
         }
@@ -604,7 +714,7 @@ public partial class MainWindow : Window
         StatusTransferText.Text =
             $"｜{(progress.Direction == FileTransferDirection.Upload ? "上傳" : "下載")} {percentage:F0}%";
         StatusTransferText.Visibility = Visibility.Visible;
-        CancelActiveTransferToolButton.Visibility = _controller is not null
+        CancelActiveTransferToolButton.Visibility = GetFileTransferSession() is not null
             ? Visibility.Visible
             : Visibility.Collapsed;
         UpdateStatusDisplay();
@@ -613,8 +723,14 @@ public partial class MainWindow : Window
     private void CompleteTransferStatus(FileTransferResult result)
     {
         _activeTransferId = null;
-        CancelActiveTransferToolButton.Visibility = Visibility.Collapsed;
-        StatusTransferText.Visibility = Visibility.Collapsed;
+        CancelActiveTransferToolButton.Visibility = FileTransferPanel.HasActiveTransfers ||
+                                                     _directTransferCancellation is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        StatusTransferText.Visibility = FileTransferPanel.HasActiveTransfers ||
+                                        _directTransferCancellation is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         SetStatus(result.Message);
     }
 
@@ -781,57 +897,86 @@ public partial class MainWindow : Window
         }
     }
 
-    private void FileTransferMenuItem_Click(object sender, RoutedEventArgs e) =>
+    private void FileTransferToolButton_Click(object sender, RoutedEventArgs e) =>
         OpenFileTransferWindow();
 
     private void OpenFileTransferWindow(IEnumerable<string>? localSources = null)
     {
-        RemoteController? controller = _controller;
-        if (controller?.IsConnected != true)
+        IFileTransferSession? session = GetFileTransferSession();
+        if (session?.IsConnected != true)
         {
-            SetStatus("請先建立控制 session，再開啟檔案傳輸。");
+            SetStatus("請先建立已配對的工作階段，再開啟檔案傳輸。");
             return;
         }
 
-        if (!controller.FileTransferAllowed)
+        if (!session.FileTransferAllowed)
         {
-            SetStatus("被控端沒有開啟本次 session 的檔案傳輸權限；請斷線後重新核准。");
+            SetStatus("本次工作階段未取得雙方的檔案傳輸權限；請斷線後重新核准。");
             return;
-        }
-
-        if (_fileTransferWindow is null || !_fileTransferWindow.IsLoaded)
-        {
-            _fileTransferWindow = new FileTransferWindow(controller)
-            {
-                Owner = this,
-            };
-            _fileTransferWindow.Closed += (_, _) => _fileTransferWindow = null;
-            _fileTransferWindow.Show();
-        }
-        else
-        {
-            _fileTransferWindow.Activate();
         }
 
         if (localSources is not null)
         {
-            _fileTransferWindow.AddLocalSources(localSources);
+            FileTransferPanel.AddLocalSources(localSources);
+        }
+
+        SessionDesktopSurface.Visibility = Visibility.Collapsed;
+        FileTransferSurface.Visibility = Visibility.Visible;
+    }
+
+    private IFileTransferSession? GetFileTransferSession() =>
+        _controller?.IsConnected == true
+            ? _controller
+            : _host?.IsConnected == true
+                ? _host
+                : null;
+
+    private void ShowRemoteDesktopSurface()
+    {
+        FileTransferSurface.Visibility = Visibility.Collapsed;
+        SessionDesktopSurface.Visibility = Visibility.Visible;
+        if (_controller?.IsConnected == true)
+        {
+            RemoteDisplay.Focus();
         }
     }
 
+    private void ShowConnectionFailure(string reason)
+    {
+        string message = $"未連線成功\n\n{reason}";
+        SetStatus($"未連線成功：{reason}");
+        MessageBox.Show(
+            this,
+            message,
+            "未連線成功",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
+
+    private static string GetConnectionFailureReason(Exception exception) => exception switch
+    {
+        TimeoutException => exception.Message,
+        UnauthorizedAccessException => exception.Message,
+        ProtocolException => exception.Message,
+        OperationCanceledException => "連線已取消或超過等待時間。",
+        System.Net.Sockets.SocketException => $"無法連到指定的位址或連接埠：{exception.Message}",
+        System.Security.Authentication.AuthenticationException => $"無法建立安全連線：{exception.Message}",
+        _ => exception.Message,
+    };
+
     private async void ReceiveRemoteClipboardMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        RemoteController? controller = _controller;
-        if (controller?.IsConnected != true || !controller.FileTransferAllowed)
+        IFileTransferSession? session = GetFileTransferSession();
+        if (session?.IsConnected != true || !session.FileTransferAllowed)
         {
-            SetStatus("請先建立已允許檔案傳輸的控制 session。");
+            SetStatus("請先建立已允許檔案傳輸的工作階段。");
             return;
         }
 
         try
         {
             SetStatus("正在讀取遠端剪貼簿中的檔案清單…");
-            IReadOnlyList<string> paths = await controller.GetRemoteClipboardFilesAsync();
+            IReadOnlyList<string> paths = await session.GetRemoteClipboardFilesAsync();
             if (paths.Count == 0)
             {
                 SetStatus("遠端剪貼簿目前沒有可傳輸的檔案或資料夾。");
@@ -857,7 +1002,11 @@ public partial class MainWindow : Window
 
             await RunDirectTransferAsync(
                 FileTransferDirection.Download,
-                token => controller.DownloadAsync(paths, dialog.FolderName, token));
+                token => session.DownloadAsync(
+                    paths,
+                    dialog.FolderName,
+                    FileConflictBehavior.KeepBoth,
+                    token));
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException)
         {
@@ -899,8 +1048,12 @@ public partial class MainWindow : Window
             _directTransferCancellation.Dispose();
             _directTransferCancellation = null;
             _activeTransferId = null;
-            StatusTransferText.Visibility = Visibility.Collapsed;
-            CancelActiveTransferToolButton.Visibility = Visibility.Collapsed;
+            StatusTransferText.Visibility = FileTransferPanel.HasActiveTransfers
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            CancelActiveTransferToolButton.Visibility = FileTransferPanel.HasActiveTransfers
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
     }
 
@@ -908,7 +1061,34 @@ public partial class MainWindow : Window
     {
         if (_directTransferCancellation is null)
         {
-            _fileTransferWindow?.Activate();
+            if (FileTransferPanel.HasActiveTransfers)
+            {
+                await FileTransferPanel.CancelAllFromToolbarAsync();
+            }
+            else if (_activeTransferId is Guid activeTransferId &&
+                     GetFileTransferSession() is { } activeSession)
+            {
+                MessageBoxResult remoteChoice = MessageBox.Show(
+                    this,
+                    "要取消目前傳輸並刪除尚未完成的 partial 檔嗎？\n\n是：刪除\n否：保留供續傳",
+                    "取消檔案傳輸",
+                    MessageBoxButton.YesNoCancel,
+                    MessageBoxImage.Question,
+                    MessageBoxResult.No);
+                if (remoteChoice != MessageBoxResult.Cancel)
+                {
+                    await activeSession.CancelTransferAsync(
+                        activeTransferId,
+                        _activeTransferDirection,
+                        remoteChoice == MessageBoxResult.Yes);
+                    _activeTransferId = null;
+                }
+            }
+            else
+            {
+                OpenFileTransferWindow();
+            }
+
             return;
         }
 
@@ -924,11 +1104,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_activeTransferId is Guid transferId && _controller is not null)
+        if (_activeTransferId is Guid transferId && GetFileTransferSession() is { } session)
         {
             try
             {
-                await _controller.CancelTransferAsync(
+                await session.CancelTransferAsync(
                     transferId,
                     _activeTransferDirection,
                     choice == MessageBoxResult.Yes);
@@ -1097,13 +1277,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (!_remoteClipboardHotkeysEnabled)
+            if (key == Key.V && _controller?.FileTransferAllowed == true &&
+                Clipboard.ContainsFileDropList())
             {
-                if (key == Key.V && _controller?.FileTransferAllowed == true && Clipboard.ContainsFileDropList())
-                {
-                    _ = UploadLocalClipboardFilesAsync();
-                }
-
+                _ = UploadLocalClipboardFilesAsync();
                 e.Handled = true;
                 return;
             }
@@ -1448,51 +1625,296 @@ public partial class MainWindow : Window
     {
         bool hosting = _host is not null;
         bool controlling = _controller is not null;
-        bool session = _sessionViewActive && controlling;
+        bool hostSession = _host?.IsConnected == true;
+        bool controllerSession = _controller?.IsConnected == true;
+        bool session = _sessionViewActive && (controllerSession || hostSession);
         StartHostButton.IsEnabled = !hosting && !controlling;
         StopHostButton.IsEnabled = hosting;
         ConnectButton.IsEnabled = !hosting && !controlling;
-        DisconnectButton.IsEnabled = controlling;
+        DisconnectButton.IsEnabled = controllerSession || hostSession;
         HostPortTextBox.IsEnabled = !hosting && !controlling;
         RemoteEndpointTextBox.IsEnabled = !hosting && !controlling;
         StartHostMenuItem.IsEnabled = !hosting && !controlling;
         StopHostMenuItem.IsEnabled = hosting;
         ConnectMenuItem.IsEnabled = !hosting && !controlling;
-        DisconnectMenuItem.IsEnabled = controlling;
-        ToolbarDisconnectButton.IsEnabled = controlling;
-        WindowedMenuItem.IsEnabled = session;
-        MaximizedMenuItem.IsEnabled = session;
-        FullscreenMenuItem.IsEnabled = session;
+        DisconnectMenuItem.IsEnabled = controllerSession || hostSession;
+        ToolbarDisconnectButton.IsEnabled = controllerSession || hostSession;
+        WindowedMenuItem.IsEnabled = controllerSession;
+        MaximizedMenuItem.IsEnabled = controllerSession;
+        FullscreenMenuItem.IsEnabled = controllerSession;
         ShowChromeMenuItem.IsEnabled = session;
-        WindowedToolButton.IsEnabled = session;
-        MaximizedToolButton.IsEnabled = session;
-        FullscreenToolButton.IsEnabled = session;
-        ScaleModeComboBox.IsEnabled = session;
-        SasToolButton.IsEnabled = session;
-        CtrlAltZeroToolButton.IsEnabled = session;
-        bool fileTransfer = session && _controller?.FileTransferAllowed == true;
-        FileTransferMenuItem.IsEnabled = fileTransfer;
+        WindowedToolButton.IsEnabled = controllerSession;
+        MaximizedToolButton.IsEnabled = controllerSession;
+        FullscreenToolButton.IsEnabled = controllerSession;
+        ScaleModeComboBox.IsEnabled = controllerSession;
+        SasToolButton.IsEnabled = controllerSession;
+        CtrlAltZeroToolButton.IsEnabled = controllerSession;
+        bool fileTransfer = session && GetFileTransferSession()?.FileTransferAllowed == true;
         ReceiveClipboardMenuItem.IsEnabled = fileTransfer;
         FileTransferToolButton.IsEnabled = fileTransfer;
-        RemoteClipboardHotkeysToggle.IsEnabled = session;
+        ClipboardToolMenu.IsEnabled = controllerSession && _controller?.ClipboardTextAllowed == true;
+        UpdateClipboardModeUi();
         RebuildShortcutMenus();
-        ModeBadge.Text = hosting ? "被控端模式" : controlling ? "控制端模式" : "尚未連線";
+        ModeBadge.Text = hostSession
+            ? "被控端已連線"
+            : hosting
+                ? "被控端等候中"
+                : controlling
+                    ? "控制端模式"
+                    : "尚未連線";
         UpdateStatusDisplay();
     }
 
-    private void RemoteClipboardHotkeysToggle_Changed(object sender, RoutedEventArgs e)
+    private async void ClipboardModeMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        _remoteClipboardHotkeysEnabled = RemoteClipboardHotkeysToggle.IsChecked == true;
-        if (!IsLoaded || !_sessionViewActive)
+        if (sender is not MenuItem { Tag: string modeName } ||
+            !Enum.TryParse(modeName, out ClipboardSyncMode requestedMode))
         {
             return;
         }
 
-        SetStatus(_remoteClipboardHotkeysEnabled
-            ? "遠端剪貼簿快捷鍵已開啟；Ctrl+C／X／V 會直接操作被控端。"
-            : "遠端剪貼簿快捷鍵已關閉；本機檔案 Ctrl+V 會改用跨機傳輸。");
+        RemoteController? controller = _controller;
+        if (controller?.IsConnected != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await controller.ChangeClipboardSyncModeAsync(requestedMode);
+            _clipboardSyncMode = requestedMode;
+            if (requestedMode == ClipboardSyncMode.Off)
+            {
+                ClearClipboardSyncState();
+            }
+
+            UpdateClipboardModeUi();
+            SetStatus(requestedMode switch
+            {
+                ClipboardSyncMode.ControllerToHost => "文字剪貼簿：單向（主控 → 被控）。",
+                ClipboardSyncMode.Bidirectional => "文字剪貼簿：雙向同步。",
+                _ => "文字剪貼簿同步已關閉；遠端內部的 Ctrl+C／X／V 仍可使用。",
+            });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ObjectDisposedException)
+        {
+            _clipboardSyncMode = controller.ClipboardSyncMode;
+            UpdateClipboardModeUi();
+            SetStatus($"剪貼簿模式切換失敗：{exception.Message}");
+        }
+
         RemoteDisplay.Focus();
     }
+
+    private void UpdateClipboardModeUi()
+    {
+        if (!IsInitialized)
+        {
+            return;
+        }
+
+        ClipboardOffMenuItem.IsChecked = _clipboardSyncMode == ClipboardSyncMode.Off;
+        ClipboardOneWayMenuItem.IsChecked = _clipboardSyncMode == ClipboardSyncMode.ControllerToHost;
+        ClipboardBidirectionalMenuItem.IsChecked = _clipboardSyncMode == ClipboardSyncMode.Bidirectional;
+        ClipboardToolMenu.ToolTip = _clipboardSyncMode switch
+        {
+            ClipboardSyncMode.ControllerToHost => "純文字剪貼簿：單向（主控 → 被控）",
+            ClipboardSyncMode.Bidirectional => "純文字剪貼簿：雙向",
+            _ => "純文字剪貼簿：關閉",
+        };
+    }
+
+    private IntPtr WindowMessageHook(
+        IntPtr hwnd,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
+    {
+        if (message == WindowMessageClipboardUpdate)
+        {
+            ScheduleClipboardRead();
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private void ScheduleClipboardRead()
+    {
+        if (!ShouldMonitorLocalClipboard())
+        {
+            return;
+        }
+
+        _clipboardReadRequested = true;
+        if (_clipboardReadScheduled)
+        {
+            return;
+        }
+
+        _clipboardReadScheduled = true;
+        _ = Dispatcher.InvokeAsync(async () =>
+        {
+            try
+            {
+                do
+                {
+                    _clipboardReadRequested = false;
+                    await ReadLocalClipboardTextAsync();
+                }
+                while (_clipboardReadRequested && ShouldMonitorLocalClipboard());
+            }
+            finally
+            {
+                _clipboardReadScheduled = false;
+                if (_clipboardReadRequested && ShouldMonitorLocalClipboard())
+                {
+                    ScheduleClipboardRead();
+                }
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private bool ShouldMonitorLocalClipboard() =>
+        (_controller?.IsConnected == true &&
+         _controller.ClipboardTextAllowed &&
+         _clipboardSyncMode != ClipboardSyncMode.Off) ||
+        _host?.CanSendClipboardText == true;
+
+    private async Task ReadLocalClipboardTextAsync()
+    {
+        for (int attempt = 0; attempt < 4 && ShouldMonitorLocalClipboard(); attempt++)
+        {
+            try
+            {
+                if (Clipboard.ContainsFileDropList() ||
+                    !Clipboard.ContainsText(TextDataFormat.UnicodeText))
+                {
+                    return;
+                }
+
+                string text = Clipboard.GetText(TextDataFormat.UnicodeText);
+                if (text.Length == 0)
+                {
+                    return;
+                }
+
+                string hash = ComputeClipboardTextHash(text);
+                if (hash == _recentRemoteClipboardHash &&
+                    DateTimeOffset.UtcNow <= _recentRemoteClipboardHashExpiresAt)
+                {
+                    return;
+                }
+
+                _recentRemoteClipboardHash = null;
+                _clipboardTextBuffer.Offer(text);
+                ScheduleClipboardSend();
+                return;
+            }
+            catch (ExternalException) when (attempt < 3)
+            {
+                await Task.Delay(35);
+            }
+        }
+    }
+
+    private void ScheduleClipboardSend()
+    {
+        if (Interlocked.CompareExchange(ref _clipboardSendScheduled, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _ = DrainClipboardTextAsync();
+    }
+
+    private async Task DrainClipboardTextAsync()
+    {
+        try
+        {
+            while (_clipboardTextBuffer.Take() is string text)
+            {
+                if (_controller?.IsConnected == true &&
+                    _controller.ClipboardTextAllowed &&
+                    _clipboardSyncMode != ClipboardSyncMode.Off)
+                {
+                    await _controller.SendClipboardTextAsync(text);
+                }
+                else if (_host?.CanSendClipboardText == true)
+                {
+                    await _host.SendClipboardTextAsync(text);
+                }
+            }
+        }
+        catch (ArgumentException exception)
+        {
+            RunOnUi(() => SetStatus(exception.Message));
+        }
+        catch (Exception exception) when (
+            exception is IOException or OperationCanceledException or ObjectDisposedException or ProtocolException)
+        {
+            if (!_closing)
+            {
+                RunOnUi(() => SetStatus($"文字剪貼簿同步中斷：{exception.Message}"));
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _clipboardSendScheduled, 0);
+            if (_clipboardTextBuffer.HasValue && ShouldMonitorLocalClipboard())
+            {
+                ScheduleClipboardSend();
+            }
+        }
+    }
+
+    private async Task ApplyRemoteClipboardTextAsync(string text)
+    {
+        if (_closing || text.Length == 0)
+        {
+            return;
+        }
+
+        string hash = ComputeClipboardTextHash(text);
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            try
+            {
+                if (!Clipboard.ContainsFileDropList() &&
+                    Clipboard.ContainsText(TextDataFormat.UnicodeText) &&
+                    Clipboard.GetText(TextDataFormat.UnicodeText) == text)
+                {
+                    return;
+                }
+
+                _recentRemoteClipboardHash = hash;
+                _recentRemoteClipboardHashExpiresAt = DateTimeOffset.UtcNow.AddSeconds(2);
+                Clipboard.SetText(text, TextDataFormat.UnicodeText);
+                return;
+            }
+            catch (ExternalException) when (attempt < 3)
+            {
+                await Task.Delay(35);
+            }
+            catch (ExternalException exception)
+            {
+                _recentRemoteClipboardHash = null;
+                SetStatus($"無法寫入 Windows 剪貼簿：{exception.Message}");
+                return;
+            }
+        }
+    }
+
+    private void ClearClipboardSyncState()
+    {
+        _clipboardTextBuffer.Clear();
+        _clipboardReadRequested = false;
+        _recentRemoteClipboardHash = null;
+        _recentRemoteClipboardHashExpiresAt = default;
+    }
+
+    private static string ComputeClipboardTextHash(string text) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
     private static string FormatPairingCode(string code) =>
         code.Length == 6 ? $"{code[..3]} {code[3..]}" : code;
@@ -1532,7 +1954,6 @@ public partial class MainWindow : Window
         _closing = true;
         _statusToastTimer.Stop();
         _directTransferCancellation?.Cancel();
-        _fileTransferWindow?.Close();
         IsEnabled = false;
         try
         {
@@ -1545,6 +1966,29 @@ public partial class MainWindow : Window
             Close();
         }
     }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        ClearClipboardSyncState();
+        if (_windowSource is not null)
+        {
+            _ = RemoveClipboardFormatListener(_windowSource.Handle);
+            _windowSource.RemoveHook(WindowMessageHook);
+            _windowSource = null;
+        }
+
+        base.OnClosed(e);
+    }
+
+    private const int WindowMessageClipboardUpdate = 0x031D;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AddClipboardFormatListener(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
 
     private enum RemoteWindowMode
     {

@@ -2,56 +2,57 @@
 
 ## 目前做到哪
 
-LanRemote 目前為 package v4.1／協定 v4。本輪在既有雙向檔案傳輸上加入 Toolbar `C/X/V 直通` 開關，預設開啟；控制端直接按 `Ctrl+C／X／V` 會操作被控端自己的剪貼簿。關閉開關後，本機檔案 `Ctrl+V` 才恢復跨機上傳。這不是背景文字／圖片剪貼簿同步。
+LanRemote 目前為 package v4.3.1／協定 v6。v4.3 連線後預設停在「工作階段概覽」，而接收端又會丟棄未選取遠端控制分頁時收到的 frame；v4.3.1 已移除這項 UI 路由依賴，控制端配對成功後直接顯示遠端桌面。
 
-兩臺電腦仍採「單一 session 單向、斷線交換角色」的雙向控制模型，不是同時互控。檔案傳輸由被控端在每次配對時另行勾選，預設關閉且斷線失效；SAS 服務仍只由使用者手動安裝，程式不修改 Windows Firewall 或安全性原則。
+工作階段概覽、遠端控制與檔案傳輸三個 Tab 已移除。控制端顯示遠端桌面，被控端顯示簡潔受控狀態；檔案面板只由 Toolbar「檔案」開啟，在同一主視窗按「返回桌面」後繼續背景傳輸。既有雙端主動傳輸、文字剪貼簿、拖放、三種畫質、縮放、快捷鍵與雙游標均保留。
+
+連線初始介面改為明確高對比文字。TCP、TLS 與初始協定交握預設 15 秒逾時，人工配對核准獨立保留 120 秒，遠端桌面初始化再限制 15 秒；錯誤格式、拒絕、版本不符或逾時會清理連線並顯示「未連線成功」。
 
 ## 目前狀態
 
-- 封裝來源 revision：`5a2ce98e420bedb0df060e86afabb2a101f5afd0`。
-- v4.1 測試包：[artifacts/LanRemote-v4.1-win-x64.zip](artifacts/LanRemote-v4.1-win-x64.zip)，136,070,962 bytes。
-- ZIP SHA-256：`B55C41650F77749A820381B6AAA61CC6E6EBC1338B7E2CFAAFBAD793A36F3247`。
-- ZIP 回讀：743 entries、743 unique、0 duplicate、9/9 個關鍵檔案 manifest hash PASS；內嵌 README 可見 v4.1 與快捷鍵開關說明。
-- 已驗證：Release 50/50 tests、六專案 build 0 warning／0 error、format、四個 PowerShell 腳本 parser、六專案 NuGet vulnerability audit。
-- TLS loopback：實際完成跨 chunk 上傳、反向下載、遠端瀏覽、exact bytes、同名改名、不授權拒絕、partial resume offset／清理、磁碟根目錄目的地與內容指紋識別。
-- GUI smoke：Toolbar 固定顯示 `C/X/V 直通` 與 `⇄ 檔案`；開關 XAML 預設開啟。底部狀態列移除及三種狀態模式仍保留。
-- 使用者回報：既有檔案傳輸使用正常；目前只有對話回報，尚未回收 schema v3 evidence。
-- GUI 限制：啟動 host 時出現 Windows Firewall 系統提示；依工作單未修改安全設定，因此配對檔案 opt-in、連線中拖放／傳輸視窗／剪貼簿仍待人工雙機證據。
-- 未驗證：v4.1 `Ctrl+C／X／V` 在 Windows 10／11 兩個控制方向的實際效果、關閉開關後檔案貼上回歸、SAS／CAD、雙游標與三模式實際 FPS。
-- Authenticode：應用程式與服務均 `NotSigned`，只限自有電腦測試。
-- ReadyGate：`NOT_READY` 正式發布；無 release override；GitHub `LOCAL_ONLY/NOT_CONFIGURED`。
+- Git：本機 `main`，基準 HEAD `ca147365bf4a2e7dea951781ae23645399843539`；本輪已確認把既有 v5／v6 功能與 v4.3.1 修復建立為首次公開 source checkpoint，完成狀態以 GitHub remote SHA 回讀為準。
+- v4.3.1 測試包：[artifacts/LanRemote-v4.3.1-win-x64.zip](artifacts/LanRemote-v4.3.1-win-x64.zip)，136,112,419 bytes。
+- ZIP SHA-256：`A9954D63939A6580DCE98E4589041D36D33367525F791D33138372B303F083F2`。
+- ZIP 回讀：743 entries、743 unique、0 duplicate、9/9 manifest hash PASS；內嵌 README 可見 v4.3.1、協定 v6、直接遠端桌面與無 Tab 介面。
+- Debug／Release tests：61/61 PASS；包含 TLS 無回應逾時、配對核准獨立逾時、UI 無 Tab source contract、雙端檔案傳輸、文字剪貼簿與既有遠端控制協定。
+- Debug／Release build：0 warning／0 error；`dotnet format --verify-no-changes` PASS。
+- 四個 PowerShell 腳本 parser：0 error；雙機證據腳本為 schema v6。
+- 六專案 NuGet vulnerability audit：目前來源未回報已知弱點套件。
+- 封裝版 GUI smoke：實際可見高對比 launcher、無 session Tab 與 Toolbar「檔案」；輸入 `bad-key` 後實際出現「未連線成功」對話框。未啟動 host、未配對、未操作 Windows Firewall。
+- Authenticode：應用程式與 SAS 服務均 `NotSigned`，只限自有電腦測試。
+- Source delivery：`sink6985757-web/LanRemote-win-x64`，Apache License 2.0；只包含原始碼與文件，ignored 測試 ZIP／build outputs／雙機 evidence 不公開。
+- ReadyGate：GitHub source checkpoint 已獲工作單授權；正式軟體發布仍為 `NOT_READY`，缺 Windows 11 25H2／Windows 10 22H2 schema v6 兩機遠端畫面與完整回歸證據。
+- 先前 Google Drive 鎖定留下的 `artifacts/LanRemote-v4.2-win-x64.previous-42583b27cd364d1d8441569d065984d8/` 仍是 0-entry 空目錄，不含程式或資料；本輪未刪除。
 
 ## 唯一續跑點
 
-1. 兩臺都換成同一份 v4.1 ZIP，核對 SHA-256 後完整解壓縮並關閉舊版。
-2. 先測 Windows 11 控制 Windows 10：保持 `C/X/V 直通` 開啟，在遠端記事本測 `Ctrl+C／X／V`；再關閉開關，測本機檔案總管複製檔案後對遠端畫面按 `Ctrl+V`。
-3. 斷線交換角色，再測 Windows 10 控制 Windows 11；需要 CAD 的被控端由本人手動安裝 SAS 服務並測試。
-4. 每方向用 `New-TwoPcEvidence.ps1` 產生 schema v3 JSON，複製回 ignored `readygate/evidence-inbox/`。
-5. 回到本專案執行 `startup`，由後續 Agent 唯讀回收證據並重算 ReadyGate。
+在 Windows 11 25H2 與 Windows 10 22H2 使用同一份 v4.3.1 ZIP，核對 SHA-256 後完成 schema v6 實機測試：
+
+1. 兩臺都關閉舊版、完整解壓 v4.3.1，發起端要求檔案傳輸，接收端核准。
+2. 確認控制端配對後直接顯示第一張與持續更新的遠端畫面，且兩端都沒有三個 session Tab。
+3. 在兩端確認 Toolbar「檔案」可開啟面板、返回桌面不中止傳輸，並回歸控制端／被控端主動傳送與同時雙向傳送。
+4. 輸入錯誤格式與沒有服務的私人區網位址，確認會在限制時間內顯示「未連線成功」並可重新連線。
+5. 回歸文字剪貼簿三模式、拖放、鍵鼠、游標、三種畫質／縮放、立即斷線、衝突模式與 partial 續傳。
+6. 每個控制方向執行 `New-TwoPcEvidence.ps1`，把 schema v6 JSON 放回 ignored `readygate/evidence-inbox/`。
 
 ## 回復方式
 
-- Session：任一端按「立即斷線」或關閉程式。
-- 檔案：取消傳輸時選擇刪除 partial；保留則供相同來源、內容與目的地在下次連線續傳。
-- SAS 服務：在對應電腦以系統管理員 PowerShell 手動執行 `uninstall-sas-service.ps1`；腳本不刪程式檔、不回改 policy。
-- Source：只回復本輪快捷鍵修正時使用 `git revert 5a2ce98`；不要 `reset --hard`。
-
-## 後續獨立工作
-
-- 以 Windows Graphics Capture + Media Foundation H.264／硬體編碼取代 GDI/JPEG，再建立 1080p30 與互動延遲 p95 的效能基線。
-- 公開發布前另行處理程式簽章、受支援 OS 聲明、安裝器與發布授權。
+- Session：任一端按「立即斷線」或關閉程式；檔案與文字剪貼簿授權隨 session 失效。
+- Package：若 v4.3.1 實機仍有 critical 問題，兩臺都完整換回使用者已確認畫面正常的同一份 v4 ZIP；不同協定版本不得混用。
+- Source：已發布錯誤使用 `git revert <commit>` 後非強制推送修正，不要 `reset --hard` 或 force push。
+- SAS 服務：在對應電腦以系統管理員 PowerShell 手動執行 `uninstall-sas-service.ps1`。
 
 ## 注意事項
 
-- 協定 v4 不向下相容，兩臺必須同時使用本輪新版。
-- 安裝 SAS 服務後不要移動或刪除解壓縮資料夾；需移動時先卸載、移動後再安裝。
-- 一般 `SendInput` 仍受 UIPI 限制；CAD 只走固定用途服務。
-- 上層 `gogoYulin` 是多個獨立 repository 的工作區索引，不得把上層 Git 工作樹當成本專案 repository。
-- `readygate/evidence-inbox/` 包含電腦名稱與私人 IP，已加入 `.gitignore`，不得直接提交。
+- 協定仍為 v6，v4.3.1 可與 v4.3 協定交握，但兩臺實機驗證時必須都換成 v4.3.1，避免另一端仍帶有畫面路由回歸。
+- 遠端控制仍是單一方向；檔案傳輸才是在同一 session 中允許雙方主動發起。
+- 一般 `SendInput` 仍受 UIPI 限制；`Ctrl+Alt+Delete` 只走固定用途 SAS 服務。
+- 上層 `gogoYulin` 是多個獨立 repository 的工作區索引，不得把上層 Git 工作樹當成本專案。
+- `readygate/evidence-inbox/` 含電腦名稱與私人 IP，已忽略，不得直接提交。
 
 ## 最近更新
 
-- 時間：2026-08-23 10:41 +08:00
+- 時間：2026-08-23（GitHub source checkpoint）
 - 更新者：Codex
-- 電腦：YULIN-SFG16-72
-- GitHub：`NOT_CONFIGURED`
+- 執行環境：runtime device（未寫入裝置識別）
+- GitHub：`sink6985757-web/LanRemote-win-x64`；最終 SHA 待 push 後回讀

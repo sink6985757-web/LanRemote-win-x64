@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
-    $OutputDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.1-win-x64"
+    $OutputDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.3.1-win-x64"
 }
 elseif (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
     $OutputDirectory = Join-Path $projectRoot $OutputDirectory
@@ -29,7 +29,38 @@ if (-not $stagingRoot.StartsWith($expectedTempRoot, [System.StringComparison]::O
     throw "Publish staging path escaped the Windows temp directory."
 }
 
+function Remove-PlainDirectoryWithRetry {
+    param(
+        [Parameter(Mandatory)]
+        [string]$LiteralPath,
+        [int]$MaximumAttempts = 8
+    )
+
+    for ($attempt = 1; $attempt -le $MaximumAttempts; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $LiteralPath -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            if ($attempt -ge $MaximumAttempts) {
+                throw
+            }
+        }
+
+        if (-not (Test-Path -LiteralPath $LiteralPath)) {
+            return
+        }
+
+        if ($attempt -lt $MaximumAttempts) {
+            Start-Sleep -Milliseconds (250 * $attempt)
+        }
+    }
+
+    throw "Unable to replace package output after $MaximumAttempts attempts: $LiteralPath"
+}
+
 New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+$previousOutputDirectory = $null
+$packageSucceeded = $false
 try {
     & dotnet test (Join-Path $projectRoot "LanRemote.sln") `
         --configuration Release `
@@ -72,7 +103,13 @@ try {
             throw "Refusing to replace a package output that is not a plain directory tree."
         }
 
-        Remove-Item -LiteralPath $OutputDirectory -Recurse -Force
+        $previousOutputDirectory = $OutputDirectory + ".previous-" + [guid]::NewGuid().ToString("N")
+        $previousOutputDirectory = [System.IO.Path]::GetFullPath($previousOutputDirectory)
+        if (-not $previousOutputDirectory.StartsWith($artifactsPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Previous package backup escaped the artifacts directory."
+        }
+
+        Move-Item -LiteralPath $OutputDirectory -Destination $previousOutputDirectory
     }
 
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
@@ -106,6 +143,7 @@ try {
     $archive = ([System.IO.Path]::GetFullPath($OutputDirectory).TrimEnd('\') + ".zip")
     Compress-Archive -Path (Join-Path $OutputDirectory "*") -DestinationPath $archiveStaging
     Copy-Item -LiteralPath $archiveStaging -Destination $archive -Force
+    $packageSucceeded = $true
     [pscustomobject]@{
         OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
         Archive         = $archive
@@ -114,6 +152,17 @@ try {
     }
 }
 finally {
+    if ($packageSucceeded -and
+        -not [string]::IsNullOrWhiteSpace($previousOutputDirectory) -and
+        (Test-Path -LiteralPath $previousOutputDirectory)) {
+        try {
+            Remove-PlainDirectoryWithRetry -LiteralPath $previousOutputDirectory
+        }
+        catch {
+            Write-Warning "New package is complete, but Google Drive kept the recoverable previous directory: $previousOutputDirectory"
+        }
+    }
+
     if (Test-Path -LiteralPath $stagingRoot) {
         $resolvedStaging = [System.IO.Path]::GetFullPath($stagingRoot)
         if ($resolvedStaging.StartsWith($expectedTempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
