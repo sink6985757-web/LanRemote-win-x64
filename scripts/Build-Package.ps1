@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
-    $OutputDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.3.1-win-x64"
+    $OutputDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.4.1-win-x64"
 }
 elseif (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
     $OutputDirectory = Join-Path $projectRoot $OutputDirectory
@@ -122,6 +122,12 @@ try {
         -Destination (Join-Path $OutputDirectory "install-sas-service.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "uninstall-sas-service.ps1") `
         -Destination (Join-Path $OutputDirectory "uninstall-sas-service.ps1") -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot "src\LanRemote.App\Assets\LanRemote.App.png") `
+        -Destination (Join-Path $OutputDirectory "LanRemote.App.png") -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot "src\LanRemote.App\Assets\LanRemote.App.ico") `
+        -Destination (Join-Path $OutputDirectory "LanRemote.App.ico") -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot "src\LanRemote.App\Assets\PROVENANCE.md") `
+        -Destination (Join-Path $OutputDirectory "ICON-PROVENANCE.md") -Force
     $executable = Join-Path $OutputDirectory "LanRemote.App.exe"
     $hash = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
     $hashTargets = @(
@@ -130,6 +136,9 @@ try {
         "LanRemote.Core.dll",
         "LanRemote.Protocol.dll",
         "LanRemote.Windows.dll",
+        "LanRemote.App.png",
+        "LanRemote.App.ico",
+        "ICON-PROVENANCE.md",
         "service\LanRemote.SasService.exe",
         "service\LanRemote.SasService.dll",
         "install-sas-service.ps1",

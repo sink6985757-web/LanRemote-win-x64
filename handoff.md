@@ -2,57 +2,61 @@
 
 ## 目前做到哪
 
-LanRemote 目前為 package v4.3.1／協定 v6。v4.3 連線後預設停在「工作階段概覽」，而接收端又會丟棄未選取遠端控制分頁時收到的 frame；v4.3.1 已移除這項 UI 路由依賴，控制端配對成功後直接顯示遠端桌面。
+LanRemote 目前為本機 package v4.4.1／協定 v7 測試候選。既有遠端畫面、三種畫質、縮放、游標、檔案傳輸、文字剪貼簿、配對與安全模型未改；本輪以 Windows 低階鍵盤 hook 修復 Right Alt 與全實體鍵直通，把檔案清單選取列改成深藍綠高亮與白字，並加入原創的深藍／青綠雙螢幕連線應用程式圖示。
 
-工作階段概覽、遠端控制與檔案傳輸三個 Tab 已移除。控制端顯示遠端桌面，被控端顯示簡潔受控狀態；檔案面板只由 Toolbar「檔案」開啟，在同一主視窗按「返回桌面」後繼續背景傳輸。既有雙端主動傳輸、文字剪貼簿、拖放、三種畫質、縮放、快捷鍵與雙游標均保留。
+控制端必須點遠端畫面才進入「遠端輸入」，此時顯示 2 px 青色細框與 Toolbar 狀態。`WH_KEYBOARD_LL` 只在 LanRemote 為前景且已鎖定時攔截非 injected 實體按鍵；F11、Esc、Alt+Tab、Windows、Right Alt、Caps Lock、Num Lock 與其他按鍵都以 scan code／extended flag 送被控端，唯一保留本機的是實體 `Ctrl+Alt+Delete`。點 Toolbar／本機對話框、視窗失焦、斷線或關閉會解除 hook、送出 release-all 並回到「本機操作」。
 
-連線初始介面改為明確高對比文字。TCP、TLS 與初始協定交握預設 15 秒逾時，人工配對核准獨立保留 120 秒，遠端桌面初始化再限制 15 秒；錯誤格式、拒絕、版本不符或逾時會清理連線並顯示「未連線成功」。
+控制端不再傳送本機 IME 完成組字；標準英文實體鍵盤只傳 physical scan code，由被控端自己的鍵盤配置、大小寫與輸入法解讀。控制端幽靈游標仍是 15% 填色、70% 白邊、縮小 20% 的空心箭頭，停止 350 ms 後淡出。
 
 ## 目前狀態
 
-- Git：本機 `main` 追蹤 `origin/main`；首次原始碼 checkpoint `498c88cbb2fc5f17555121649906b5d33aca40fc` 已以非 force push 建立並由 GitHub `main` 回讀。
-- v4.3.1 測試包：[artifacts/LanRemote-v4.3.1-win-x64.zip](artifacts/LanRemote-v4.3.1-win-x64.zip)，136,112,419 bytes。
-- ZIP SHA-256：`A9954D63939A6580DCE98E4589041D36D33367525F791D33138372B303F083F2`。
-- ZIP 回讀：743 entries、743 unique、0 duplicate、9/9 manifest hash PASS；內嵌 README 可見 v4.3.1、協定 v6、直接遠端桌面與無 Tab 介面。
-- Debug／Release tests：61/61 PASS；包含 TLS 無回應逾時、配對核准獨立逾時、UI 無 Tab source contract、雙端檔案傳輸、文字剪貼簿與既有遠端控制協定。
-- Debug／Release build：0 warning／0 error；`dotnet format --verify-no-changes` PASS。
-- 四個 PowerShell 腳本 parser：0 error；雙機證據腳本為 schema v6。
+- Git：本機 `main` 與 `origin/main` 的開工基準都是 `b3ca0f26cbc964b04d5f6a77f9f2c93fc8a87722`；使用者已明確授權 v4.4.1 source checkpoint，目前為 `PENDING_CHECKPOINT`。
+- v4.4.1 測試包：[artifacts/LanRemote-v4.4.1-win-x64.zip](artifacts/LanRemote-v4.4.1-win-x64.zip)，136,931,178 bytes。
+- ZIP SHA-256：`85FD41ADDE5D106AFC53122D3C596AFF0597D0BA0C4430889F0223F0FDC59579`；`LanRemote.App.exe` SHA-256：`71AB957E94FE2694218F14354A012A14B1A5C72254764A068FB79527CED9DA08`。
+- ZIP 回讀：746 entries、746 unique、0 duplicate、12/12 manifest PASS；包內附 `LanRemote.App.png`、`LanRemote.App.ico` 與 `ICON-PROVENANCE.md`。
+- Debug／Release tests：91/91 PASS；涵蓋低階 hook routing、injected-event 忽略、Right Alt／Windows／Caps Lock、僅本機 SAS、release-all、TLS session、選取高對比色與透明多尺寸圖示 wiring。
+- Debug／Release build：六專案 0 warning／0 error；`dotnet format --verify-no-changes` PASS。
+- 四個 PowerShell 腳本 parser：0 error；雙機證據腳本為 schema v8。
 - 六專案 NuGet vulnerability audit：目前來源未回報已知弱點套件。
-- 封裝版 GUI smoke：實際可見高對比 launcher、無 session Tab 與 Toolbar「檔案」；輸入 `bad-key` 後實際出現「未連線成功」對話框。未啟動 host、未配對、未操作 Windows Firewall。
+- 圖示來源：[src/LanRemote.App/Assets/PROVENANCE.md](src/LanRemote.App/Assets/PROVENANCE.md)；原始與置中 PNG 為 RGBA，ICO 包含 16、20、24、32、40、48、64、128、256 px，16／32／48／256 px 的淺色與深色背景回讀可辨識。
+- v4.4.1 封裝版 GUI smoke：標題列可見新圖示，高對比 launcher、無 session Tab、三種畫質、Toolbar「檔案」／剪貼簿／自訂按鍵與既有連線入口正常；額外候選視窗已關閉。
 - Authenticode：應用程式與 SAS 服務均 `NotSigned`，只限自有電腦測試。
-- Source delivery：公開 repository `sink6985757-web/LanRemote-win-x64`，預設分支 `main`；Apache License 2.0 已由 GitHub 偵測，ignored 測試 ZIP／build outputs／雙機 evidence 未公開。
-- ReadyGate：GitHub source checkpoint 為 `READY`；正式軟體發布仍為 `NOT_READY`，缺 Windows 11 25H2／Windows 10 22H2 schema v6 兩機遠端畫面與完整回歸證據。
-- 先前 Google Drive 鎖定留下的 `artifacts/LanRemote-v4.2-win-x64.previous-42583b27cd364d1d8441569d065984d8/` 仍是 0-entry 空目錄，不含程式或資料；本輪未刪除。
+- 本輪沒有切換或中斷目前裝置上既有的 v4.4 工作階段；v4.4.1 的 Right Alt、被控端輸入法與檔案選取視覺仍待 Yulin 另行實機驗收。
+- ReadyGate：v4.4.1 本機測試包為 `CONDITIONAL`，可供自有兩機驗收；本次只放行公開 source checkpoint，正式簽章 binary／GitHub Release 仍為 `NOT_READY`。
+- Google Drive 仍保留三個 recoverable previous 目錄：v4.2 為 0 file、v4.4 為 33 files、v4.4.1 只有鎖定中的 `System.Printing.dll`；本輪未強制刪除。
 
 ## 唯一續跑點
 
-在 Windows 11 25H2 與 Windows 10 22H2 使用同一份 v4.3.1 ZIP，核對 SHA-256 後完成 schema v6 實機測試：
+在 Windows 11 25H2 與 Windows 10 22H2 使用同一份 v4.4.1 ZIP，核對 SHA-256 後完成 schema v8 實機測試：
 
-1. 兩臺都關閉舊版、完整解壓 v4.3.1，發起端要求檔案傳輸，接收端核准。
-2. 確認控制端配對後直接顯示第一張與持續更新的遠端畫面，且兩端都沒有三個 session Tab。
-3. 在兩端確認 Toolbar「檔案」可開啟面板、返回桌面不中止傳輸，並回歸控制端／被控端主動傳送與同時雙向傳送。
-4. 輸入錯誤格式與沒有服務的私人區網位址，確認會在限制時間內顯示「未連線成功」並可重新連線。
-5. 回歸文字剪貼簿三模式、拖放、鍵鼠、游標、三種畫質／縮放、立即斷線、衝突模式與 partial 續傳。
-6. 每個控制方向執行 `New-TwoPcEvidence.ps1`，把 schema v6 JSON 放回 ignored `readygate/evidence-inbox/`。
+1. 兩臺都關閉舊版並完整解壓 v4.4.1；protocol v7 不能與 v6 混用。v4.4 host 雖可與 v4.4.1 controller 交握，但完整驗收建議兩端使用同一包。
+2. 配對後確認控制端直接顯示遠端畫面且持續更新；三種畫質、三種縮放、視窗化／最大化／全螢幕與幽靈游標沒有回歸。
+3. 點遠端畫面，確認青色細框與「遠端輸入」；測試英文大小寫、數字、常用符號、F1～F12、Home、End、方向鍵、Tab、左右 Ctrl／Alt／Shift、Right Alt、Caps Lock、Num Lock、Windows 鍵與被控端輸入法。
+4. 確認鎖定期間 F11、Esc、Alt+Tab 與 Windows 鍵都送被控端，只有實體 Ctrl+Alt+Delete 留本機；不要用自動化觸發安全桌面。點 Toolbar／對話框或切換本機視窗後，鍵盤應立即恢復本機且沒有 Ctrl／Alt 卡住。
+5. 從 Toolbar「檔案」打開檔案面板，分別確認作用中及失焦選取列都是深藍綠底、白字且檔名可讀；回歸雙端主動／同時雙向傳輸、衝突模式與續傳。
+6. 確認新圖示在 EXE、視窗標題列、工作列與 Alt+Tab 一致；回歸文字剪貼簿三模式、拖放、連線逾時與立即斷線。
+7. 每個控制方向執行 `New-TwoPcEvidence.ps1`，把 schema v8 JSON 放回 ignored `readygate/evidence-inbox/`。
 
 ## 回復方式
 
 - Session：任一端按「立即斷線」或關閉程式；檔案與文字剪貼簿授權隨 session 失效。
-- Package：若 v4.3.1 實機仍有 critical 問題，兩臺都完整換回使用者已確認畫面正常的同一份 v4 ZIP；不同協定版本不得混用。
-- Source：已發布錯誤使用 `git revert <commit>` 後非強制推送修正，不要 `reset --hard` 或 force push。
+- Package：若 v4.4.1 鍵盤擷取有 critical 問題，關閉 v4.4.1 控制端並換回 v4.4；兩者都是 protocol v7。若回到 v4.3.1，兩端都必須一起切回 protocol v6。
+- Source：以 Git `b3ca0f26cbc964b04d5f6a77f9f2c93fc8a87722` 檢視差異；已發布錯誤使用 `git revert <commit>`，不要 `reset --hard` 或 force push。
 - SAS 服務：在對應電腦以系統管理員 PowerShell 手動執行 `uninstall-sas-service.ps1`。
 
 ## 注意事項
 
-- 協定仍為 v6，v4.3.1 可與 v4.3 協定交握，但兩臺實機驗證時必須都換成 v4.3.1，避免另一端仍帶有畫面路由回歸。
-- 遠端控制仍是單一方向；檔案傳輸才是在同一 session 中允許雙方主動發起。
-- 一般 `SendInput` 仍受 UIPI 限制；`Ctrl+Alt+Delete` 只走固定用途 SAS 服務。
+- 鎖定遠端輸入後沒有鍵盤退出熱鍵；請用滑鼠點 Toolbar／本機對話框或切換到其他視窗解除。
+- 實體 Ctrl+Alt+Delete 永遠保留本機；要送遠端 SAS，必須明確使用 Toolbar 按鈕與固定用途服務。
+- 一般 `SendInput` 仍受 UIPI 限制；不能控制較高權限視窗或 Windows 安全桌面。
+- 原創圖示未使用第三方圖片或商標，provenance 可追溯，但不取代正式著作權／商標法律檢索。
+- Windows 10 22H2 不在 .NET 10 官方支援清單；self-contained 可運行測試不等於 Microsoft 官方支援。
 - 上層 `gogoYulin` 是多個獨立 repository 的工作區索引，不得把上層 Git 工作樹當成本專案。
 - `readygate/evidence-inbox/` 含電腦名稱與私人 IP，已忽略，不得直接提交。
 
 ## 最近更新
 
-- 時間：2026-08-23 14:01 +08:00
+- 時間：2026-08-23 16:11 +08:00
 - 更新者：Codex
 - 執行環境：runtime device（未寫入裝置識別）
-- GitHub：`main` 已建立；原始碼／授權 checkpoint `498c88cbb2fc5f17555121649906b5d33aca40fc`，收工文件 checkpoint 以最新 `origin/main` 為準
+- GitHub：v4.4.1 source checkpoint `PENDING_CHECKPOINT`；目標為既有 `origin/main`，不建立 tag／Release

@@ -51,6 +51,20 @@
 - 檔案面板加入「返回桌面」且不取消背景傳輸；開啟面板期間仍持續緩衝與呈現最新遠端畫面。
 - 初始深色介面改用明確高對比文字／核取方塊樣式；控制端加入 15 秒 TCP／TLS／初始協定逾時、120 秒人工配對核准逾時及統一「未連線成功」對話框。
 - 雙機證據腳本升級為 schema v6，改記錄直接遠端畫面、無 Tab、Toolbar 檔案入口、連線失敗對話框與 launcher 對比。
+- 依 `WO-LANREMOTE-V44-KEYBOARD-CAPTURE-CURSOR-20260823` 升級協定為 v7，輸入 payload 新增 physical scan code、extended flag、Unicode scalar 與 release-all。
+- 控制端改為點遠端畫面才進入遠端輸入；點 Toolbar／對話框、視窗失焦、Esc 或 Alt+Tab 會回本機並釋放按鍵，滑鼠單純移出不解除。
+- Toolbar 新增「遠端輸入／本機操作」狀態與 2 px 青色細框；F11、Esc、Alt+Tab 保留本機，Ctrl+Alt+Delete 繼續走 SAS。
+- 被控端 `SendInput` 加入 scan code／extended 與 Unicode 注入，並在 UI 失焦、主動斷線及 host session 結束時清除所有追蹤按鍵，避免 Ctrl／Alt 卡住。
+- 控制端游標改為 15% 填色、70% 白邊、縮小 20% 的空心幽靈箭頭，停止移動 350 ms 後淡出；沒有光圈或文字標籤。
+- 雙機證據腳本升級為 schema v7，新增 physical key、IME Unicode fallback、輸入模式切換、本機保留鍵與 stuck-key release 欄位。
+- 依 `WO-LANREMOTE-V441-LIVE-QA-KEYBOARD-HOOK-20260823` 保持 protocol v7，新增 `WH_KEYBOARD_LL` 前景鍵盤攔截器；遠端輸入鎖定時，除實體 `Ctrl+Alt+Delete` 保留本機外，F11、Esc、Alt+Tab、Windows、Right Alt、Caps Lock 與其他實體鍵都只送被控端。
+- 低階 hook 忽略 injected／lower-integrity injected 事件，失焦、點擊 Toolbar／對話框、斷線與關閉時解除攔截、送出 release-all 並清空修飾鍵狀態；WPF 保留 injected-event fallback，避免實體按鍵重複。
+- 控制端取消本機 IME 完成組字的 Unicode 轉送；標準英文實體鍵盤只傳 scan code，由被控端自己的鍵盤配置、Caps Lock 與輸入法解讀。
+- 檔案傳輸的作用中選取列改為 `#155E75` 深藍綠底、失焦選取列 `#164E63`，兩者都使用 `#F8FAFC` 高對比白字；不改檔案傳輸流程或資料模型。
+- 雙機證據腳本升級為 schema v8，新增被控端輸入法、Right Alt、全鍵盤僅保留本機 SAS、本機點擊後恢復及檔案選取可讀性欄位。
+- 使用內建 ImageGen 從零產生深藍／青綠雙螢幕連線圖示，保留透明原始 PNG、置中 1024 px PNG、16～256 px 多尺寸 ICO、最終提示與 provenance；未使用第三方圖示、商標、文字或浮水印。
+- 將同一 ICO 嵌入 `LanRemote.App.exe` 與 WPF 視窗，供標題列、工作列與 Alt+Tab 使用；發包時另附 PNG、ICO 與 `ICON-PROVENANCE.md`，並加入 SHA256 manifest。
+- 將 README 改寫為面向公開社群的 Open Source 文案，補上 Apache-2.0 定位、專案目的、從原始碼建置、測試包限制、安全使用邊界與 Issue／Pull Request 去識別要求；不宣稱已有官方簽章 binary Release。
 
 ### Validation
 
@@ -100,12 +114,30 @@
 - v4.3.1 封裝版 GUI smoke：實際回讀高對比 launcher、Toolbar 唯一「檔案」面板入口與無 session Tab；輸入 `bad-key` 後實際顯示「未連線成功」對話框。未啟動 host、未配對、未操作 Windows Firewall。
 - v4.3.1 self-contained ZIP 由本機工作樹（基準 HEAD `ca147365bf4a2e7dea951781ae23645399843539`）建立；136,112,419 bytes，SHA-256 `A9954D63939A6580DCE98E4589041D36D33367525F791D33138372B303F083F2`。
 - v4.3.1 ZIP 回讀：743 entries、743 unique、0 duplicate、9/9 manifest hash PASS；內嵌 README 可回讀 v4.3.1、協定 v6 與無 Tab 介面；EXE／服務均 `NotSigned`。
+- v4.4 Debug／Release tests：76/76 PASS；涵蓋 F5、Home、End、方向鍵、Tab、右 Ctrl／Alt scan code 與 extended flag、Unicode scalar、TLS physical input、斷線 release-all 及 UI source contract。
+- v4.4 Debug／Release build：六專案 0 warning／0 error；`dotnet format --verify-no-changes`、四個 PowerShell scripts parser 與六專案 NuGet vulnerability audit 通過。
+- v4.4 封裝版 GUI smoke：實際回讀高對比 launcher、無 session Tab、三種畫質、Toolbar「檔案」與既有連線入口；未啟動 host、未配對、未操作 Windows Firewall。
+- v4.4 self-contained ZIP 由本機工作樹（基準 HEAD `b3ca0f26cbc964b04d5f6a77f9f2c93fc8a87722`）建立；136,120,973 bytes，SHA-256 `18621AA9FCD1BCAD56C2D18EF18E54DC77167936773B83FE4F8CA227D40F1E8C`。
+- v4.4 ZIP 回讀：743 entries、743 unique、0 duplicate、9/9 manifest hash PASS；內嵌 README 可回讀 v4.4、協定 v7、遠端輸入與空心幽靈箭頭；EXE／服務均 `NotSigned`。
+- Google Drive 在 v4.4 重建後保留一個 33-file 的 recoverable previous 目錄；新目錄與 ZIP 已獨立驗證，本輪未強制刪除同步鎖定中的備份。
+- v4.4 既有連線的安全基線 QA：畫面更新、F5、Home／End／方向鍵、Ctrl、檔案上下載與 SHA-256 回傳通過；Right Alt、被控端輸入法、Caps Lock 與檔案面板本機文字輸入隔離未通過，結果記錄於 ignored `readygate/evidence-inbox/20260823-v44-live-baseline.json`，工作階段未被中斷。
+- v4.4.1 Debug／Release tests：91/91 PASS；涵蓋低階 hook routing state、injected-event pass-through、Right Alt／Windows／Caps Lock scan code、僅本機 SAS、失去 eligibility 清理、UI source contract、檔案選取高對比色與透明多尺寸圖示 wiring。
+- v4.4.1 Debug／Release build：六專案 0 warning／0 error；`dotnet format --verify-no-changes`、四個 PowerShell scripts parser 與六專案 NuGet vulnerability audit 通過。
+- 圖示 QA：原始與置中 PNG 均為 RGBA，ICO 包含 16、20、24、32、40、48、64、128、256 px；16／32／48／256 px 在淺色與深色背景回讀仍能辨識雙螢幕與中央連線，EXE 可實際抽出 32×32 圖示。
+- v4.4.1 封裝版 GUI smoke：實際回讀標題列新圖示、高對比 launcher、無 session Tab、三種畫質、Toolbar「檔案」／剪貼簿／自訂按鍵與既有連線入口；額外候選視窗已關閉，既有 v4.4 工作階段未中斷。未配對，因此檔案選取列的最終視覺仍待 v4.4.1 連線人工驗收。
+- v4.4.1 self-contained ZIP 由本機工作樹（基準 HEAD `b3ca0f26cbc964b04d5f6a77f9f2c93fc8a87722`）建立；136,931,178 bytes，SHA-256 `85FD41ADDE5D106AFC53122D3C596AFF0597D0BA0C4430889F0223F0FDC59579`；`LanRemote.App.exe` SHA-256 為 `71AB957E94FE2694218F14354A012A14B1A5C72254764A068FB79527CED9DA08`。
+- v4.4.1 ZIP 回讀：746 entries、746 unique、0 duplicate、12/12 manifest hash PASS；包內 README 可回讀 v4.4.1、協定 v7、全鍵盤直通、本機 SAS、深藍綠選取列與原創圖示；EXE／服務均 `NotSigned`。
+- Google Drive 在 v4.4.1 重建後保留一個只有 `System.Printing.dll` 的 recoverable previous 目錄；新目錄與 ZIP 已獨立完整驗證，本輪未強制刪除同步鎖定檔。
+- GitHub source checkpoint 公開預檢：manifest allowlist 外 0 項、超過 100 MB 0 項、裝置名稱／已知私人 IP／本機絕對路徑 0 hits；secret pattern 唯一命中是已追蹤的 `password: null` 臨時憑證 API 參數，回讀確認不是 credential。
+- `artifacts/` 測試 ZIP／previous 目錄與 `readygate/evidence-inbox/` 私人雙機證據均由 `.gitignore` 明確排除；checkpoint 前 Release 91/91、format 與 `git diff --check` 通過。
 
 ### Delivery
 
-- GitHub：`LOCAL_ONLY/NOT_CONFIGURED`
+- GitHub：`PENDING_CHECKPOINT` — 使用者已明確授權將 v4.4.1 原始碼、公開 README、原創圖示與治理文件非強制推送到既有 `origin/main`；不包含 ignored ZIP／build outputs／私人 evidence，也不建立 tag 或 Release。
 - ReadyGate（`WO-LANREMOTE-V4-FILE-TRANSFER-UX-20260823`，Cycle 3）：正式發布為 `NOT_READY`；v4.1 ZIP 只供自有兩機測試。既有檔案傳輸由 Yulin 回報正常，新版快捷鍵直通與完整雙向回歸仍待 schema v3 證據。
 - ReadyGate（`WO-LANREMOTE-V5-TEXT-CLIPBOARD-20260823`）：本機功能、53 項測試、GUI smoke 與 ZIP 完整性已驗證；正式發布仍為 `NOT_READY`，等待 Windows 10／11 兩個控制方向的 schema v4 實機證據。
 - ReadyGate（`WO-LANREMOTE-V6-BIDIRECTIONAL-FILE-SESSION-20260823`）：本機功能、57 項 Release 測試、封裝版 GUI smoke 與 ZIP 完整性已驗證；正式發布仍為 `NOT_READY`，等待 Windows 10／11 schema v5 兩端主動傳輸與完整回歸證據。
 - ReadyGate（`WO-LANREMOTE-V431-REMOTE-DISPLAY-FIX-20260823`）：本機程式、61 項 Release 測試、封裝版 UI 與 ZIP 完整性已驗證；正式發布仍為 `NOT_READY`，等待 Windows 11 25H2／Windows 10 22H2 schema v6 直接顯示遠端畫面與完整回歸證據。
+- ReadyGate（`WO-LANREMOTE-V44-KEYBOARD-CAPTURE-CURSOR-20260823`）：v4.4 本機測試包為 `CONDITIONAL`，只供自有兩機驗收；正式發布仍為 `NOT_READY`，等待 Windows 11 25H2／Windows 10 22H2 schema v7 鍵盤、游標與完整回歸證據。
+- ReadyGate（`WO-LANREMOTE-V441-LIVE-QA-KEYBOARD-HOOK-20260823`）：v4.4.1 本機測試包為 `CONDITIONAL`，只供自有兩機驗收；正式發布仍為 `NOT_READY`，等待 Windows 11 25H2／Windows 10 22H2 schema v8 Right Alt、被控端輸入法、全鍵盤路由、檔案選取視覺與完整回歸證據。
 - 原 MVP 的 WGC + Media Foundation H.264 效能目標仍未完成，保留為後續獨立工作項目。

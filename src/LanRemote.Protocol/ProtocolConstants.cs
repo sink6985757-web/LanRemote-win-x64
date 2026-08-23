@@ -2,7 +2,7 @@ namespace LanRemote.Protocol;
 
 public static class ProtocolConstants
 {
-    public const byte Version = 6;
+    public const byte Version = 7;
     public const int HeaderLength = 10;
     public const int MaxPayloadLength = 16 * 1024 * 1024;
     public const int FileChunkLength = 256 * 1024;
@@ -12,5 +12,5 @@ public static class ProtocolConstants
     public const long MaxFileLength = 2L * 1024 * 1024 * 1024;
     public const long MaxBatchLength = 10L * 1024 * 1024 * 1024;
     public const int NonceLength = 32;
-    public static ReadOnlySpan<byte> Magic => "LRM6"u8;
+    public static ReadOnlySpan<byte> Magic => "LRM7"u8;
 }

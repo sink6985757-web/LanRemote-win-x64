@@ -3,6 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="#0B1220" Foreground="#E5EDF8">
     <UserControl.Resources>
+        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#155E75" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F8FAFC" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#164E63" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#F8FAFC" />
         <Style TargetType="Button">
             <Setter Property="Padding" Value="12,7" />
             <Setter Property="Margin" Value="0,0,8,0" />
@@ -15,6 +19,24 @@
             <Setter Property="Background" Value="#111C30" />
             <Setter Property="Foreground" Value="White" />
             <Setter Property="BorderBrush" Value="#30445F" />
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="#E5EDF8" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#155E75" />
+                    <Setter Property="Foreground" Value="#F8FAFC" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="ListViewItem">
+            <Setter Property="Foreground" Value="#E5EDF8" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#155E75" />
+                    <Setter Property="Foreground" Value="#F8FAFC" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </UserControl.Resources>
 

@@ -111,7 +111,7 @@ public sealed class RemoteSessionTests
             QualityPreset.Smooth,
             timeout.Token);
         VideoFramePayload frame = await frameReceived.Task.WaitAsync(timeout.Token);
-        RemoteInputEvent expectedInput = new(RemoteInputKind.Key, IsDown: true, VirtualKey: 0x41);
+        RemoteInputEvent expectedInput = RemoteInputEvent.PhysicalKey(0x1E, isExtended: false, isDown: true);
         await controller.SendInputAsync(expectedInput, timeout.Token);
         RemoteInputEvent actualInput = await input.ReadAsync(timeout.Token);
 
@@ -123,6 +123,10 @@ public sealed class RemoteSessionTests
         Assert.Equal(expectedInput, actualInput);
         Assert.Equal(QualityProfiles.Smooth, screen.CurrentQualityProfile);
         Assert.Equal(QualityProfiles.Smooth, controller.CurrentQualityProfile);
+
+        RemoteInputEvent expectedUnicode = RemoteInputEvent.UnicodeText(0x1F642);
+        await controller.SendInputAsync(expectedUnicode, timeout.Token);
+        Assert.Equal(expectedUnicode, await input.ReadAsync(timeout.Token));
 
         await controller.SendShortcutAsync(RemoteShortcut.ControlPaste, timeout.Token);
         List<RemoteInputEvent> clipboardInputs = [];
@@ -146,6 +150,7 @@ public sealed class RemoteSessionTests
         Assert.Equal(QualityProfiles.Quality, applied);
         Assert.Equal(QualityProfiles.Quality, screen.CurrentQualityProfile);
         await controller.DisconnectAsync();
+        Assert.Equal(RemoteInputKind.ReleaseAllKeys, (await input.ReadAsync(timeout.Token)).Kind);
     }
 
     [Fact]

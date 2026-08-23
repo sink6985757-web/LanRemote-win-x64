@@ -30,6 +30,27 @@ param(
     [bool]$KeyboardPassed,
 
     [Parameter(Mandatory)]
+    [bool]$PhysicalKeysPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$HostImePhysicalKeysPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$InputCaptureSwitchingPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$RightAltHotkeyPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$AllKeysRemoteExceptLocalSasPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$LocalInputRestoredAfterClickPassed,
+
+    [Parameter(Mandatory)]
+    [bool]$StuckKeyReleasePassed,
+
+    [Parameter(Mandatory)]
     [bool]$ClipboardControllerToHostPassed,
 
     [Parameter(Mandatory)]
@@ -92,6 +113,9 @@ param(
     [Parameter(Mandatory)]
     [bool]$CursorPassed,
 
+    [Parameter(Mandatory)]
+    [bool]$FileSelectionReadablePassed,
+
     [string]$Notes = "",
     [string]$PackageDirectory = "",
     [string]$OutputDirectory = ""
@@ -106,7 +130,7 @@ if ([string]::IsNullOrWhiteSpace($PackageDirectory)) {
         $PackageDirectory = $PSScriptRoot
     }
     else {
-        $PackageDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.3.1-win-x64"
+        $PackageDirectory = Join-Path $projectRoot "artifacts\LanRemote-v4.4.1-win-x64"
     }
 }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -133,7 +157,7 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $outputFile = Join-Path $OutputDirectory ("{0}-{1}-{2}.json" -f $timestamp, $safeComputerName, $Direction)
 
 $evidence = [ordered]@{
-    schemaVersion = 6
+    schemaVersion = 8
     recordedAt = (Get-Date).ToString("o")
     computerName = $env:COMPUTERNAME
     peerComputer = $PeerComputer
@@ -157,6 +181,13 @@ $evidence = [ordered]@{
         pairingCodesMatched = $PairingCodesMatched
         mousePassed = $MousePassed
         keyboardPassed = $KeyboardPassed
+        physicalKeysPassed = $PhysicalKeysPassed
+        hostImePhysicalKeysPassed = $HostImePhysicalKeysPassed
+        inputCaptureSwitchingPassed = $InputCaptureSwitchingPassed
+        rightAltHotkeyPassed = $RightAltHotkeyPassed
+        allKeysRemoteExceptLocalSasPassed = $AllKeysRemoteExceptLocalSasPassed
+        localInputRestoredAfterClickPassed = $LocalInputRestoredAfterClickPassed
+        stuckKeyReleasePassed = $StuckKeyReleasePassed
         clipboardControllerToHostPassed = $ClipboardControllerToHostPassed
         clipboardHostToControllerPassed = $ClipboardHostToControllerPassed
         clipboardModesPassed = $ClipboardModesPassed
@@ -178,6 +209,7 @@ $evidence = [ordered]@{
         resumePassed = $ResumePassed
         statusModesPassed = $StatusModesPassed
         cursorPassed = $CursorPassed
+        fileSelectionReadablePassed = $FileSelectionReadablePassed
         notes = $Notes
     }
 }

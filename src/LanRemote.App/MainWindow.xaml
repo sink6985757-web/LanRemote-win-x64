@@ -3,10 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:LanRemote.App"
         Title="LanRemote — 區網雙向控制"
+        Icon="Assets/LanRemote.App.ico"
         Width="1180" Height="820" MinWidth="900" MinHeight="640"
         Background="#0B1220" Foreground="#E5EDF8"
-        Loaded="Window_Loaded" Closing="Window_Closing"
-        PreviewKeyDown="Window_PreviewKeyDown">
+        Loaded="Window_Loaded" Closing="Window_Closing" Deactivated="Window_Deactivated"
+        PreviewMouseDown="Window_PreviewMouseDown" PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
         <SolidColorBrush x:Key="PanelBrush" Color="#111C30" />
         <SolidColorBrush x:Key="BorderBrush" Color="#263750" />
@@ -175,6 +176,9 @@
                                            Foreground="#64748B" VerticalAlignment="Center" />
                                 <TextBlock x:Name="StatusFpsText" Text="｜0.0 FPS"
                                            Foreground="#334155" VerticalAlignment="Center" />
+                                <TextBlock x:Name="StatusInputText" Text="｜本機操作" Visibility="Collapsed"
+                                           Foreground="#475569" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
                                 <TextBlock x:Name="StatusTransferText" Text="" Visibility="Collapsed"
                                            Foreground="#0F766E" VerticalAlignment="Center" />
                             </StackPanel>
@@ -303,12 +307,19 @@
                                    PreviewKeyDown="RemoteDisplay_PreviewKeyDown"
                                    PreviewKeyUp="RemoteDisplay_PreviewKeyUp" />
                             <Canvas x:Name="ControllerCursorLayer" IsHitTestVisible="False"
-                                    Visibility="Collapsed">
+                                    Visibility="Collapsed" Opacity="0">
                                 <Path x:Name="ControllerCursorArrow"
                                       Data="M 0,0 L 0,17.6 L 4.4,13.2 L 8,20 L 11.2,18.4 L 7.6,11.6 L 14.4,11.6 Z"
-                                      Fill="#4FD1C5" Stroke="White" StrokeThickness="1.3"
-                                      StrokeLineJoin="Round" />
+                                      Fill="#264FD1C5" Stroke="#B3FFFFFF" StrokeThickness="1.3"
+                                      StrokeLineJoin="Round">
+                                    <Path.RenderTransform>
+                                        <ScaleTransform ScaleX="0.8" ScaleY="0.8" />
+                                    </Path.RenderTransform>
+                                </Path>
                             </Canvas>
+                            <Border x:Name="RemoteInputBorder" IsHitTestVisible="False"
+                                    Visibility="Collapsed" Panel.ZIndex="45"
+                                    BorderBrush="#4FD1C5" BorderThickness="2" />
                             <Border x:Name="DropTargetOverlay" Visibility="Collapsed"
                                     IsHitTestVisible="False" VerticalAlignment="Bottom"
                                     HorizontalAlignment="Center" Margin="22" Background="#E6111C30"

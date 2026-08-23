@@ -502,6 +502,18 @@ public sealed class RemoteHost : IFileTransferSession, IAsyncDisposable
             finally
             {
                 sessionCancellation.Cancel();
+                try
+                {
+                    await _inputInjector.InjectAsync(
+                        RemoteInputEvent.ReleaseAllKeys(),
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (
+                    exception is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    OnStatus($"遠端按鍵釋放失敗：{exception.Message}");
+                }
+
                 FileTransferAllowed = false;
                 CancelPendingRequests();
                 SessionEnded?.Invoke();

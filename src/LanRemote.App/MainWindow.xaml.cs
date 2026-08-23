@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using LanRemote.Core;
@@ -34,6 +35,13 @@ public partial class MainWindow : Window
     {
         Interval = TimeSpan.FromSeconds(4),
     };
+    private readonly DispatcherTimer _cursorFadeTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(350),
+    };
+    private readonly object _inputQueueSync = new();
+    private readonly HashSet<PhysicalKeyDescriptor> _remotePressedKeys = [];
+    private Task _inputSendTail = Task.CompletedTask;
     private RemoteHost? _host;
     private RemoteController? _controller;
     private CancellationTokenSource? _directTransferCancellation;
@@ -70,6 +78,8 @@ public partial class MainWindow : Window
     private Point _lastDropResolvePoint;
     private DateTimeOffset _lastDropResolveAt;
     private bool _dropResolveInProgress;
+    private bool _remoteInputActive;
+    private WindowsLowLevelKeyboardCapture? _keyboardCapture;
 
     public MainWindow()
     {
@@ -93,13 +103,29 @@ public partial class MainWindow : Window
             _statusToastTimer.Stop();
             TransientStatusBorder.Visibility = Visibility.Collapsed;
         };
+        _cursorFadeTimer.Tick += (_, _) =>
+        {
+            _cursorFadeTimer.Stop();
+            ControllerCursorLayer.BeginAnimation(
+                UIElement.OpacityProperty,
+                new DoubleAnimation(0, TimeSpan.FromMilliseconds(180))
+                {
+                    FillBehavior = FillBehavior.HoldEnd,
+                });
+        };
     }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+        nint windowHandle = new WindowInteropHelper(this).Handle;
+        _windowSource = HwndSource.FromHwnd(windowHandle);
         _windowSource?.AddHook(WindowMessageHook);
+        _keyboardCapture = new WindowsLowLevelKeyboardCapture(
+            windowHandle,
+            ForwardCapturedPhysicalKey,
+            ReleaseRemoteKeysForLocalSecureAttention,
+            HandleKeyboardCaptureFailure);
         if (_windowSource is not null && !AddClipboardFormatListener(_windowSource.Handle))
         {
             SetStatus("無法啟用 Windows 文字剪貼簿監聽；請重新啟動程式。");
@@ -380,10 +406,16 @@ public partial class MainWindow : Window
     private async Task DisconnectControllerAsync()
     {
         RemoteController? controller = _controller;
-        _controller = null;
         if (controller is not null)
         {
+            DeactivateRemoteInput();
+            await DrainInputQueueAsync();
+            _controller = null;
             await controller.DisposeAsync();
+        }
+        else
+        {
+            _controller = null;
         }
 
         ClearClipboardSyncState();
@@ -408,6 +440,7 @@ public partial class MainWindow : Window
             ApplyRemoteWindowMode(RemoteWindowMode.Windowed);
         }
 
+        DeactivateRemoteInput(sendRelease: false);
         _sessionViewActive = false;
         _ = FileTransferPanel.SetSessionAsync(null);
         SetChromePinned(true);
@@ -428,6 +461,7 @@ public partial class MainWindow : Window
         CancelActiveTransferToolButton.Visibility = Visibility.Collapsed;
         _resolvedDropTarget = null;
         DropTargetOverlay.Visibility = Visibility.Collapsed;
+        UpdateRemoteInputUi();
         UpdateStatusDisplay();
     }
 
@@ -920,6 +954,7 @@ public partial class MainWindow : Window
             FileTransferPanel.AddLocalSources(localSources);
         }
 
+        DeactivateRemoteInput();
         SessionDesktopSurface.Visibility = Visibility.Collapsed;
         FileTransferSurface.Visibility = Visibility.Visible;
     }
@@ -933,12 +968,9 @@ public partial class MainWindow : Window
 
     private void ShowRemoteDesktopSurface()
     {
+        DeactivateRemoteInput();
         FileTransferSurface.Visibility = Visibility.Collapsed;
         SessionDesktopSurface.Visibility = Visibility.Visible;
-        if (_controller?.IsConnected == true)
-        {
-            RemoteDisplay.Focus();
-        }
     }
 
     private void ShowConnectionFailure(string reason)
@@ -1256,6 +1288,16 @@ public partial class MainWindow : Window
         }
     }
 
+    private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_remoteInputActive && !RemoteDisplay.IsMouseOver)
+        {
+            DeactivateRemoteInput();
+        }
+    }
+
+    private void Window_Deactivated(object? sender, EventArgs e) => DeactivateRemoteInput();
+
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (!_sessionViewActive)
@@ -1263,37 +1305,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        ModifierKeys modifiers = Keyboard.Modifiers;
-        int virtualKey = KeyInterop.VirtualKeyFromKey(key);
-        if (modifiers.HasFlag(ModifierKeys.Control) &&
-            !modifiers.HasFlag(ModifierKeys.Alt) &&
-            virtualKey is > 0 and <= ushort.MaxValue &&
-            RemoteShortcut.TryGetClipboardHotkey((ushort)virtualKey, out RemoteShortcut? clipboardShortcut))
+        if (_remoteInputActive)
         {
-            if (e.IsRepeat)
-            {
-                e.Handled = true;
-                return;
-            }
-
-            if (key == Key.V && _controller?.FileTransferAllowed == true &&
-                Clipboard.ContainsFileDropList())
-            {
-                _ = UploadLocalClipboardFilesAsync();
-                e.Handled = true;
-                return;
-            }
-
-            if (!RemoteDisplay.IsKeyboardFocusWithin)
-            {
-                _ = SendShortcutSafelyAsync(clipboardShortcut!, announce: false);
-                e.Handled = true;
-                return;
-            }
+            // The low-level hook owns physical keys while locked. Injected fallback
+            // events continue to the focused RemoteDisplay handlers below.
+            return;
         }
 
-        if ((key is Key.D0 or Key.NumPad0) &&
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        if (!_remoteInputActive &&
+            (key is Key.D0 or Key.NumPad0) &&
             modifiers.HasFlag(ModifierKeys.Control) &&
             modifiers.HasFlag(ModifierKeys.Alt))
         {
@@ -1308,9 +1330,14 @@ public partial class MainWindow : Window
                     : RemoteWindowMode.Fullscreen);
             e.Handled = true;
         }
-        else if (e.Key == Key.Escape && _remoteWindowMode == RemoteWindowMode.Fullscreen)
+        else if (e.Key == Key.Escape)
         {
-            ApplyRemoteWindowMode(RemoteWindowMode.Windowed);
+            if (_remoteWindowMode == RemoteWindowMode.Fullscreen)
+            {
+                ApplyRemoteWindowMode(RemoteWindowMode.Windowed);
+            }
+
+            DeactivateRemoteInput();
             e.Handled = true;
         }
     }
@@ -1427,43 +1454,18 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task UploadLocalClipboardFilesAsync()
-    {
-        if (!Clipboard.ContainsFileDropList())
-        {
-            return;
-        }
-
-        string[] paths = Clipboard.GetFileDropList().Cast<string>().ToArray();
-        if (paths.Length == 0)
-        {
-            return;
-        }
-
-        Point position = Mouse.GetPosition(RemoteDisplay);
-        await ResolveDropTargetAsync(position);
-        string? destination = _resolvedDropTarget;
-        _resolvedDropTarget = null;
-        DropTargetOverlay.Visibility = Visibility.Collapsed;
-        if (string.IsNullOrWhiteSpace(destination))
-        {
-            SetStatus("無法可靠辨識貼上位置；已開啟檔案傳輸視窗，請選擇遠端路徑。");
-            OpenFileTransferWindow(paths);
-            return;
-        }
-
-        RemoteController controller = _controller!;
-        await RunDirectTransferAsync(
-            FileTransferDirection.Upload,
-            token => controller.UploadAsync(paths, destination, token));
-    }
-
     private void RemoteDisplay_MouseMove(object sender, MouseEventArgs e)
     {
+        if (!_remoteInputActive)
+        {
+            HideControllerCursor();
+            return;
+        }
+
         Point position = e.GetPosition(RemoteDisplay);
         if (!TryNormalizePosition(position, out float x, out float y))
         {
-            ControllerCursorLayer.Visibility = Visibility.Collapsed;
+            HideControllerCursor();
             return;
         }
 
@@ -1479,20 +1481,31 @@ public partial class MainWindow : Window
 
     private void RemoteDisplay_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (_controller?.IsConnected == true)
+        if (_remoteInputActive && _controller?.IsConnected == true)
         {
             ShowControllerCursor(e.GetPosition(RemoteDisplay));
         }
     }
 
-    private void RemoteDisplay_MouseLeave(object sender, MouseEventArgs e) =>
-        ControllerCursorLayer.Visibility = Visibility.Collapsed;
+    private void RemoteDisplay_MouseLeave(object sender, MouseEventArgs e) => HideControllerCursor();
 
     private void ShowControllerCursor(Point position)
     {
+        _cursorFadeTimer.Stop();
+        ControllerCursorLayer.BeginAnimation(UIElement.OpacityProperty, null);
+        ControllerCursorLayer.Opacity = 1;
         ControllerCursorLayer.Visibility = Visibility.Visible;
         Canvas.SetLeft(ControllerCursorArrow, position.X);
         Canvas.SetTop(ControllerCursorArrow, position.Y);
+        _cursorFadeTimer.Start();
+    }
+
+    private void HideControllerCursor()
+    {
+        _cursorFadeTimer.Stop();
+        ControllerCursorLayer.BeginAnimation(UIElement.OpacityProperty, null);
+        ControllerCursorLayer.Opacity = 0;
+        ControllerCursorLayer.Visibility = Visibility.Collapsed;
     }
 
     private void RemoteDisplay_MouseDown(object sender, MouseButtonEventArgs e)
@@ -1502,7 +1515,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        RemoteDisplay.Focus();
+        ActivateRemoteInput();
         Mouse.Capture(RemoteDisplay);
         if (TryNormalizePosition(e.GetPosition(RemoteDisplay), out float x, out float y))
         {
@@ -1515,7 +1528,9 @@ public partial class MainWindow : Window
 
     private void RemoteDisplay_MouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (_controller?.IsConnected != true || !TryMapButton(e.ChangedButton, out RemoteMouseButton button))
+        if (!_remoteInputActive ||
+            _controller?.IsConnected != true ||
+            !TryMapButton(e.ChangedButton, out RemoteMouseButton button))
         {
             return;
         }
@@ -1527,7 +1542,7 @@ public partial class MainWindow : Window
 
     private void RemoteDisplay_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (_controller?.IsConnected == true)
+        if (_remoteInputActive && _controller?.IsConnected == true)
         {
             SendInput(new RemoteInputEvent(RemoteInputKind.MouseWheel, WheelDelta: e.Delta));
             e.Handled = true;
@@ -1536,39 +1551,150 @@ public partial class MainWindow : Window
 
     private void RemoteDisplay_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_controller?.IsConnected != true || e.IsRepeat)
+        if (!_remoteInputActive || _controller?.IsConnected != true)
         {
             return;
         }
 
-        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        int virtualKey = KeyInterop.VirtualKeyFromKey(key);
-        if (virtualKey is > 0 and <= ushort.MaxValue)
+        if (e.Key is Key.ImeProcessed or Key.DeadCharProcessed)
         {
-            SendInput(new RemoteInputEvent(RemoteInputKind.Key, IsDown: true, VirtualKey: (ushort)virtualKey));
+            e.Handled = true;
+            return;
+        }
+
+        Key key = ResolveKey(e);
+        int virtualKey = KeyInterop.VirtualKeyFromKey(key);
+        if (WindowsKeyboardMapper.TryMapVirtualKey(virtualKey, out PhysicalKeyDescriptor physicalKey))
+        {
+            _remotePressedKeys.Add(physicalKey);
+            SendInput(RemoteInputEvent.PhysicalKey(
+                physicalKey.ScanCode,
+                physicalKey.IsExtended,
+                isDown: true));
             e.Handled = true;
         }
     }
 
     private void RemoteDisplay_PreviewKeyUp(object sender, KeyEventArgs e)
     {
-        if (_controller?.IsConnected != true)
+        if (!_remoteInputActive || _controller?.IsConnected != true)
         {
             return;
         }
 
-        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        int virtualKey = KeyInterop.VirtualKeyFromKey(key);
-        if (virtualKey is > 0 and <= ushort.MaxValue)
+        if (e.Key is Key.ImeProcessed or Key.DeadCharProcessed)
         {
-            SendInput(new RemoteInputEvent(RemoteInputKind.Key, IsDown: false, VirtualKey: (ushort)virtualKey));
+            e.Handled = true;
+            return;
+        }
+
+        Key key = ResolveKey(e);
+        int virtualKey = KeyInterop.VirtualKeyFromKey(key);
+        if (WindowsKeyboardMapper.TryMapVirtualKey(virtualKey, out PhysicalKeyDescriptor physicalKey))
+        {
+            _remotePressedKeys.Remove(physicalKey);
+            SendInput(RemoteInputEvent.PhysicalKey(
+                physicalKey.ScanCode,
+                physicalKey.IsExtended,
+                isDown: false));
             e.Handled = true;
         }
     }
 
-    private void SendInput(RemoteInputEvent inputEvent) => _ = SendInputSafelyAsync(inputEvent);
+    private void ActivateRemoteInput()
+    {
+        if (_controller?.IsConnected != true ||
+            !_sessionViewActive ||
+            SessionDesktopSurface.Visibility != Visibility.Visible)
+        {
+            return;
+        }
 
-    private async Task SendInputSafelyAsync(RemoteInputEvent inputEvent)
+        _remoteInputActive = true;
+        RemoteDisplay.Focus();
+        try
+        {
+            _keyboardCapture?.Start();
+        }
+        catch (Win32Exception exception)
+        {
+            SetStatus($"實體鍵盤擷取未啟用，已退回視窗內輸入：{exception.Message}");
+        }
+
+        UpdateRemoteInputUi();
+    }
+
+    private void DeactivateRemoteInput(bool sendRelease = true)
+    {
+        bool hadRemoteInput = _remoteInputActive || _remotePressedKeys.Count > 0;
+        _keyboardCapture?.Stop();
+        _remoteInputActive = false;
+        _remotePressedKeys.Clear();
+        if (Mouse.Captured == RemoteDisplay)
+        {
+            Mouse.Capture(null);
+        }
+
+        HideControllerCursor();
+        if (sendRelease && hadRemoteInput && _controller?.IsConnected == true)
+        {
+            SendInput(RemoteInputEvent.ReleaseAllKeys());
+        }
+
+        UpdateRemoteInputUi();
+    }
+
+    private void ForwardCapturedPhysicalKey(CapturedPhysicalKey key)
+    {
+        if (!_remoteInputActive || _controller?.IsConnected != true)
+        {
+            return;
+        }
+
+        PhysicalKeyDescriptor descriptor = new(key.ScanCode, key.IsExtended);
+        if (key.IsDown)
+        {
+            _remotePressedKeys.Add(descriptor);
+        }
+        else
+        {
+            _remotePressedKeys.Remove(descriptor);
+        }
+
+        SendInput(RemoteInputEvent.PhysicalKey(
+            key.ScanCode,
+            key.IsExtended,
+            key.IsDown));
+    }
+
+    private void ReleaseRemoteKeysForLocalSecureAttention()
+    {
+        _remotePressedKeys.Clear();
+        if (_controller?.IsConnected == true)
+        {
+            SendInput(RemoteInputEvent.ReleaseAllKeys());
+        }
+    }
+
+    private void HandleKeyboardCaptureFailure(Exception exception) =>
+        RunOnUi(() => SetStatus($"實體鍵盤擷取發生錯誤，該按鍵已留在本機：{exception.Message}"));
+
+    private void UpdateRemoteInputUi()
+    {
+        bool controllerSession = _sessionViewActive && _controller?.IsConnected == true;
+        RemoteInputBorder.Visibility = controllerSession && _remoteInputActive
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        StatusInputText.Visibility = controllerSession ? Visibility.Visible : Visibility.Collapsed;
+        StatusInputText.Text = _remoteInputActive ? "｜遠端輸入" : "｜本機操作";
+        StatusInputText.Foreground = _remoteInputActive
+            ? new SolidColorBrush(Color.FromRgb(103, 232, 249))
+            : new SolidColorBrush(Color.FromRgb(203, 213, 225));
+    }
+
+    private static Key ResolveKey(KeyEventArgs e) => e.Key == Key.System ? e.SystemKey : e.Key;
+
+    private void SendInput(RemoteInputEvent inputEvent)
     {
         RemoteController? controller = _controller;
         if (controller is null)
@@ -1576,6 +1702,40 @@ public partial class MainWindow : Window
             return;
         }
 
+        lock (_inputQueueSync)
+        {
+            Task previous = _inputSendTail;
+            _inputSendTail = SendInputAfterAsync(previous, controller, inputEvent);
+        }
+    }
+
+    private async Task SendInputAfterAsync(
+        Task previous,
+        RemoteController controller,
+        RemoteInputEvent inputEvent)
+    {
+        try
+        {
+            await previous;
+        }
+        catch
+        {
+            // Keep the queue alive after a previously reported send failure.
+        }
+
+        await SendInputSafelyAsync(controller, inputEvent);
+    }
+
+    private Task DrainInputQueueAsync()
+    {
+        lock (_inputQueueSync)
+        {
+            return _inputSendTail;
+        }
+    }
+
+    private async Task SendInputSafelyAsync(RemoteController controller, RemoteInputEvent inputEvent)
+    {
         try
         {
             await controller.SendInputAsync(inputEvent);
@@ -1662,6 +1822,7 @@ public partial class MainWindow : Window
                 : controlling
                     ? "控制端模式"
                     : "尚未連線";
+        UpdateRemoteInputUi();
         UpdateStatusDisplay();
     }
 
@@ -1970,6 +2131,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         ClearClipboardSyncState();
+        _keyboardCapture?.Dispose();
+        _keyboardCapture = null;
         if (_windowSource is not null)
         {
             _ = RemoveClipboardFormatListener(_windowSource.Handle);

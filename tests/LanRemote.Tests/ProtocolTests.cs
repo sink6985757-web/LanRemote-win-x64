@@ -11,8 +11,8 @@ public sealed class ProtocolTests
     [Fact]
     public async Task FramedStream_RoundTripsPacket()
     {
-        Assert.Equal(6, ProtocolConstants.Version);
-        Assert.True(ProtocolConstants.Magic.SequenceEqual("LRM6"u8));
+        Assert.Equal(7, ProtocolConstants.Version);
+        Assert.True(ProtocolConstants.Magic.SequenceEqual("LRM7"u8));
         using MemoryStream transport = new();
         await using FramedMessageStream messages = new(transport);
         byte[] expected = [1, 3, 5, 7, 9];
@@ -71,6 +71,9 @@ public sealed class ProtocolTests
     [InlineData(RemoteInputKind.MouseButton)]
     [InlineData(RemoteInputKind.MouseWheel)]
     [InlineData(RemoteInputKind.Key)]
+    [InlineData(RemoteInputKind.PhysicalKey)]
+    [InlineData(RemoteInputKind.UnicodeText)]
+    [InlineData(RemoteInputKind.ReleaseAllKeys)]
     public void RemoteInput_RoundTrips(RemoteInputKind kind)
     {
         RemoteInputEvent expected = new(
@@ -80,11 +83,35 @@ public sealed class ProtocolTests
             RemoteMouseButton.Right,
             true,
             -120,
-            0x41);
+            0x41,
+            0x1E,
+            true,
+            '測');
 
         RemoteInputEvent actual = RemoteInputEvent.Deserialize(expected.Serialize());
 
         Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void PhysicalAndUnicodeInputFactories_RoundTripProtocolV7Fields()
+    {
+        RemoteInputEvent physical = RemoteInputEvent.PhysicalKey(0x1D, isExtended: true, isDown: true);
+        RemoteInputEvent unicode = RemoteInputEvent.UnicodeText(0x1F642);
+        RemoteInputEvent release = RemoteInputEvent.ReleaseAllKeys();
+
+        Assert.Equal(physical, RemoteInputEvent.Deserialize(physical.Serialize()));
+        Assert.Equal(unicode, RemoteInputEvent.Deserialize(unicode.Serialize()));
+        Assert.Equal(release, RemoteInputEvent.Deserialize(release.Serialize()));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(0xD800)]
+    [InlineData(0x110000)]
+    public void UnicodeInput_RejectsInvalidScalars(int scalar)
+    {
+        Assert.Throws<ProtocolException>(() => RemoteInputEvent.UnicodeText(scalar).Serialize());
     }
 
     [Fact]
