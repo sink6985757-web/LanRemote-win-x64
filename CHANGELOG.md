@@ -59,6 +59,8 @@
 - 本輪公開掃描：secret pattern 0 hits、本機電腦名稱 0 hits、裝置絕對路徑 0 hits；83 個初始 publishable files 中沒有超過 100 MB 的項目。
 - GitHub checkpoint 前重新驗證：Debug 61/61、Release 61/61、Release build 0 warning／0 error、`dotnet format --verify-no-changes` PASS、四個 PowerShell scripts parser 0 error。
 - 六專案 `dotnet list package --vulnerable --include-transitive`：NuGet 目前來源未回報已知弱點套件。
+- 首次 source commit `498c88cbb2fc5f17555121649906b5d33aca40fc` 已以非 force push 建立 GitHub `main`；本機與遠端 SHA 一致，GitHub 預設分支回讀為 `main`。
+- GitHub contents API 回讀 `LICENSE` 與 Apache 官方原文逐字一致，license metadata 為 `apache-2.0`；README 可回讀 v4.3.1 與 Apache License 2.0。
 - 初始化檔案已使用 UTF-8 回讀。
 - Portable manifest 已通過目前本機 Full Core validator 的結構檢查。
 - Runtime skills 與本機發行來源的 SHA-256 一致；發行來源變更尚未進入 manifest 所指的不可變 commit，因此權威版本驗證為 `PARTIAL`。

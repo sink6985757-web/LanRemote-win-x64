@@ -10,7 +10,7 @@ LanRemote 目前為 package v4.3.1／協定 v6。v4.3 連線後預設停在「�
 
 ## 目前狀態
 
-- Git：本機 `main`，基準 HEAD `ca147365bf4a2e7dea951781ae23645399843539`；本輪已確認把既有 v5／v6 功能與 v4.3.1 修復建立為首次公開 source checkpoint，完成狀態以 GitHub remote SHA 回讀為準。
+- Git：本機 `main` 追蹤 `origin/main`；首次原始碼 checkpoint `498c88cbb2fc5f17555121649906b5d33aca40fc` 已以非 force push 建立並由 GitHub `main` 回讀。
 - v4.3.1 測試包：[artifacts/LanRemote-v4.3.1-win-x64.zip](artifacts/LanRemote-v4.3.1-win-x64.zip)，136,112,419 bytes。
 - ZIP SHA-256：`A9954D63939A6580DCE98E4589041D36D33367525F791D33138372B303F083F2`。
 - ZIP 回讀：743 entries、743 unique、0 duplicate、9/9 manifest hash PASS；內嵌 README 可見 v4.3.1、協定 v6、直接遠端桌面與無 Tab 介面。
@@ -20,8 +20,8 @@ LanRemote 目前為 package v4.3.1／協定 v6。v4.3 連線後預設停在「�
 - 六專案 NuGet vulnerability audit：目前來源未回報已知弱點套件。
 - 封裝版 GUI smoke：實際可見高對比 launcher、無 session Tab 與 Toolbar「檔案」；輸入 `bad-key` 後實際出現「未連線成功」對話框。未啟動 host、未配對、未操作 Windows Firewall。
 - Authenticode：應用程式與 SAS 服務均 `NotSigned`，只限自有電腦測試。
-- Source delivery：`sink6985757-web/LanRemote-win-x64`，Apache License 2.0；只包含原始碼與文件，ignored 測試 ZIP／build outputs／雙機 evidence 不公開。
-- ReadyGate：GitHub source checkpoint 已獲工作單授權；正式軟體發布仍為 `NOT_READY`，缺 Windows 11 25H2／Windows 10 22H2 schema v6 兩機遠端畫面與完整回歸證據。
+- Source delivery：公開 repository `sink6985757-web/LanRemote-win-x64`，預設分支 `main`；Apache License 2.0 已由 GitHub 偵測，ignored 測試 ZIP／build outputs／雙機 evidence 未公開。
+- ReadyGate：GitHub source checkpoint 為 `READY`；正式軟體發布仍為 `NOT_READY`，缺 Windows 11 25H2／Windows 10 22H2 schema v6 兩機遠端畫面與完整回歸證據。
 - 先前 Google Drive 鎖定留下的 `artifacts/LanRemote-v4.2-win-x64.previous-42583b27cd364d1d8441569d065984d8/` 仍是 0-entry 空目錄，不含程式或資料；本輪未刪除。
 
 ## 唯一續跑點
@@ -52,7 +52,7 @@ LanRemote 目前為 package v4.3.1／協定 v6。v4.3 連線後預設停在「�
 
 ## 最近更新
 
-- 時間：2026-08-23（GitHub source checkpoint）
+- 時間：2026-08-23 14:01 +08:00
 - 更新者：Codex
 - 執行環境：runtime device（未寫入裝置識別）
-- GitHub：`sink6985757-web/LanRemote-win-x64`；最終 SHA 待 push 後回讀
+- GitHub：`main` 已建立；原始碼／授權 checkpoint `498c88cbb2fc5f17555121649906b5d33aca40fc`，收工文件 checkpoint 以最新 `origin/main` 為準

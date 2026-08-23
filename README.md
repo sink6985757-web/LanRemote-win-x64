@@ -111,8 +111,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Package.
 
 ## Delivery 狀態
 
-- Git：獨立 `main`；本輪已授權建立首次公開 source checkpoint，完成狀態以 GitHub remote SHA 回讀為準。
-- GitHub：`sink6985757-web/LanRemote-win-x64`；只上傳原始碼與文件，不包含 ignored 測試 ZIP／build outputs。
-- License：Apache License 2.0（`Apache-2.0`）。
+- Git：本機 `main` 追蹤 `origin/main`；原始碼 checkpoint `498c88cbb2fc5f17555121649906b5d33aca40fc` 已由 GitHub `main` 回讀。
+- GitHub：公開 repository `sink6985757-web/LanRemote-win-x64`，預設分支 `main`；只包含原始碼與文件，不包含 ignored 測試 ZIP／build outputs。
+- License：Apache License 2.0（`Apache-2.0`），GitHub 已正確偵測。
 - ReadyGate（`WO-LANREMOTE-V431-REMOTE-DISPLAY-FIX-20260823`）：本機遠端畫面路由、無 Tab 介面、分階段逾時與 61 項 Debug 測試已驗證；正式發布仍停止，等待 v4.3.1 Windows 10／11 的 schema v6 雙機實測證據。
 - 原始效能目標：WGC + Media Foundation H.264 與雙機效能證據仍是後續工作，不屬於本輪 GDI/JPEG UX 工作單。
