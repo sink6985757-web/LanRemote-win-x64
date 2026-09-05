@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased] - 2026-09-05
+
+- `WO-DRIVE-GITHUB-ALIGN-20260905-v2`：對齊 v4.4.1 source、實際 protocol v7 與既有 GitHub main；修正 AGENTS 的 v6／NOT_CONFIGURED 舊值，移除 GitHub 不存在的 ZIP 下載連結。
+- 建立／對齊 portable manual manifest，區分工作 branch、GitHub default branch 與 Drive 同步。
+- 驗證：Git root／remote identity、四檔與 manifest schema、相對連結及 diff whitespace 檢查；程式與 runtime 未變，不將歷史實機測試標為本輪重跑。
+- 本輪為 source／文件 checkpoint；不新增 tag／Release。
+
 ## [Unreleased] - 2026-08-23
 
 ### Changed

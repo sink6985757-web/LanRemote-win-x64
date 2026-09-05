@@ -29,7 +29,7 @@
 6. 先以單機 loopback 與模擬輸入測試，再進行兩臺電腦的人工授權測試。
 7. 技術棧、權限模型、配對流程或上述邊界若要改變，先以 ReadyGate 確認工作單。
 8. 目前 GDI/JPEG 只視為相容垂直切片；在 WGC + Media Foundation H.264 與雙機效能證據完成前，不得宣稱達成 1080p30／p95 200 ms。
-9. 線上協定目前為 v6；同一 session 兩端必須使用相同主要版本，不得對舊版靜默降級。
+9. 線上協定目前為 v7；同一 session 兩端必須使用相同主要版本，不得對舊版靜默降級。
 10. 遠端桌面維持單一 WPF 視窗工作區；視窗化、最大化、無邊框全螢幕、可隱藏工具列與 Fit／Stretch／Crop 座標映射是穩定 UX 邊界。
 11. GDI/JPEG 的流暢、平衡、畫質參數由 `QualityProfiles` 集中定義；協定端只接受 canonical profile，不得由對端任意提高擷取負載。
 12. `Ctrl+Alt+Delete` 只經由使用者手動安裝的固定用途 LocalSystem 服務與本機 named pipe；程式不得自動安裝服務、修改安全性原則或加入任意提權命令。
@@ -56,7 +56,16 @@
 
 ## 整合
 
-- GitHub：`NOT_CONFIGURED`
+- GitHub：public `sink6985757-web/LanRemote-win-x64`
 - Git：本目錄是獨立本機 repository，預設 branch `main`；不得把上層 workspace Git 當成本專案。
 - 生命週期 manifest：`.agents/project-lifecycle.json`
 - 外部知識庫：`ON_DEMAND_ONLY`，不屬於專案生命週期。
+
+## Portable lifecycle 維護契約
+
+- 專案：`sink6985757-web/LanRemote-win-x64`；default branch：`main`；Git root 必須是本 repository。
+- 依 `.agents/project-lifecycle.json` 使用 manual checkpoint；authority pin 指向已回讀的治理來源。
+- Startup 只讀文件與 Git，fetch 後同時確認 upstream／default branch；不得用工作 branch 已同步冒充 default branch 已包含成果。
+- Shutdown 每次更新 CHANGELOG／handoff；README 隨人類安裝、使用或版本變化更新。
+- 本次已確認工作單的授權沿用至其範圍完成；不得擴張到 tag／Release、權限、刪除或封存。
+- v4.4.1 ZIP 只在本機 artifacts/：136,931,178 bytes，SHA-256 85FD41ADDE5D106AFC53122D3C596AFF0597D0BA0C4430889F0223F0FDC59579；不在 GitHub Code ZIP，也未建立 Release。先前 Debug／Release 91/91 為歷史；兩機 Right Alt／IME／選取視覺與 schema v8 驗收仍待完成，binary NotSigned。保持可見配對、session 授權與本機停止入口，不操作正在使用的遠端 session。

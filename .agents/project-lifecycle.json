@@ -4,20 +4,20 @@
   "authority": {
     "core": {
       "repository": "sink6985757-web/cross-device-agent-workflow-core",
-      "revision": "0868a4cc157ae16be32084284450d7e20f6fa341"
+      "revision": "0816aa2d53569d062f6448b874e8ddebf923abb0"
     },
     "lifecycle": {
       "repository": "sink6985757-web/cross-device-agent-skills",
-      "revision": "383f50275c68bbb54deeaec7d3ffc13384360528"
+      "revision": "7a377045b613ed4b9b1e7e5a17c1251dbd213ddf"
     },
     "readygate": {
       "repository": "sink6985757-web/readygate-skill-chatgpt-app",
-      "revision": "7ee423f72d3eaa4cc69b70cf15958fdb82733619"
+      "revision": "b7756661c98b69ca8766bfdfec833eb54ff74b4c"
     }
   },
   "routing": {
-    "part": "windows-desktop-utilities",
-    "project": "lan-windows-remote-control",
+    "part": "applications",
+    "project": "LanRemote-win-x64",
     "project_root": "."
   },
   "project": {
@@ -34,8 +34,19 @@
     "manifest": ".agents/project-lifecycle.json"
   },
   "content": {
-    "tracked_roots": ["."],
-    "excluded_roots": [".git", ".env", "policy.local.yaml", "private", "raw", "artifacts"],
+    "tracked_roots": [
+      "."
+    ],
+    "excluded_roots": [
+      ".git",
+      ".env",
+      "policy.local.yaml",
+      "private",
+      "raw",
+      "artifacts",
+      ".archive",
+      "node_modules"
+    ],
     "large_file_policy": "repository-default"
   },
   "checkpoint": {
@@ -49,21 +60,11 @@
     "pull_mode": "ff-only",
     "unknown_untracked": "stop",
     "allow_paths": [
-      ".agents/project-lifecycle.json",
       "AGENTS.md",
       "README.md",
-      "LICENSE",
       "CHANGELOG.md",
       "handoff.md",
-      ".gitignore",
-      "global.json",
-      "Directory.Build.props",
-      "Directory.Packages.props",
-      "LanRemote.sln",
-      "src",
-      "tests",
-      "scripts",
-      "readygate"
+      ".agents/project-lifecycle.json"
     ],
     "forbidden_actions": [
       "create-repository",

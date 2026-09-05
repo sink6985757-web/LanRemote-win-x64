@@ -1,5 +1,18 @@
 # LanRemote
 
+## 2026-09-05 更新
+
+對齊 v4.4.1 source、實際 protocol v7 與既有 GitHub main；修正 AGENTS 的 v6／NOT_CONFIGURED 舊值，移除 GitHub 不存在的 ZIP 下載連結。
+
+## 開工與收工
+
+1. 首次使用或治理缺件才執行 `initial`；既有專案平日直接 `startup`。
+2. 開工讀取 [manifest](.agents/project-lifecycle.json)、[AGENTS.md](AGENTS.md)、[handoff.md](handoff.md)，確認 Git root 與 `origin`，fetch 後分別比較目前 upstream 和 default branch `main`。fetch 不會同步工作樹。
+3. 在已確認範圍內修改與驗證。未提交內容、版本分叉與 unknown untracked 先保全、辨識，不直接覆蓋或整包 stage。
+4. 收工更新 [CHANGELOG.md](CHANGELOG.md) 與 handoff；使用 `manual` checkpoint，沿用當次已確認工作單的 commit／push 授權。只有遠端 SHA 回讀一致才算 GitHub 同步完成；Drive 同步另行回讀。
+
+固定 authority commit、專案 identity 與窄範圍文件 allowlist 見 manifest。一般開工不執行安裝、部署或外部帳號動作；既有 tag／Release、封存來源與私人設定依各自邊界維持。
+
 LanRemote 是一套以 Apache License 2.0 開放原始碼的 Windows 私人區網遠端控制工具。兩臺電腦執行同一套程式，各自都能選擇「讓這臺電腦被控制」或「控制另一臺電腦」；結束目前 session 後交換角色，就能反向控制。
 
 目前提供未簽章的本機測試候選，不是公開發布版本。v4.4.1 保留 v4.4 的畫面、畫質、檔案傳輸、剪貼簿與協定 v7，改用 `WH_KEYBOARD_LL` 擷取控制端實體鍵盤：鎖定遠端輸入後，除本機 `Ctrl+Alt+Delete` 外的按鍵全部以 scan code 送遠端；點 Toolbar／對話框或視窗失焦會解除擷取並釋放按鍵。Windows 10 22H2／Windows 11 25H2 的修正版 Right Alt、被控端 IME 與完整回歸仍待使用者人工驗收。
